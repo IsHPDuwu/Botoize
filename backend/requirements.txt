@@ -1,0 +1,6 @@
+Django>=5.2.8,<5.3
+djangorestframework>=3.16,<3.17
+cryptography>=46,<47
+psycopg[binary]>=3.2,<4
+pytest>=8,<10
+pytest-django>=4.11,<5
