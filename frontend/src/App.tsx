@@ -1,24 +1,31 @@
 import { useEffect, useState } from 'react';
 import {
   Badge, Button, Card, CardHeader, Divider, FluentProvider, Link,
-  MessageBar, MessageBarBody, Switch, Tab, TabList, Text, Title1, Title2,
+  MessageBar, MessageBarBody, Switch, Tab, TabList, Text, Title1, Title3,
   Toolbar, DataGrid, DataGridHeader, DataGridRow, DataGridHeaderCell,
   DataGridBody, DataGridCell, createTableColumn,
   webDarkTheme, webLightTheme,
-  Field, Dropdown, Option, Spinner, makeStyles, tokens,
+  Field, Dropdown, Option, Spinner, makeStyles, makeStaticStyles, tokens,
+  Dialog, DialogSurface, DialogBody, DialogTitle, DialogContent, DialogActions,
 } from '@fluentui/react-components';
 import { CopyRegular, ArrowClockwiseRegular, BotRegular } from '@fluentui/react-icons';
 import { demoDashboard, isDemoEnabled, windows, type Window } from './dashboard';
+import { checkBackend } from './api';
+import { Account } from './Account';
 
 const pages = ['总览', '我的 Bot', 'API Key', '订阅端点', '事件与投递', '接入指南'];
+const useDocumentLayout = makeStaticStyles({
+  body: { margin: 0 },
+});
 const useStyles = makeStyles({
-  shell: { minHeight: '100vh', display: 'grid', gridTemplateColumns: '240px minmax(0, 1fr)', backgroundColor: tokens.colorNeutralBackground2, '@media (max-width: 760px)': { gridTemplateColumns: 'minmax(0, 1fr)' } },
-  sidebar: { display: 'flex', flexDirection: 'column', gap: tokens.spacingVerticalXL, padding: tokens.spacingHorizontalL, backgroundColor: tokens.colorNeutralBackground1 },
-  workspace: { minWidth: 0, display: 'flex', flexDirection: 'column', gap: tokens.spacingVerticalL, padding: tokens.spacingHorizontalXXL, '@media (max-width: 760px)': { padding: tokens.spacingHorizontalM } },
+  shell: { minHeight: '100vh', display: 'grid', gridTemplateColumns: '216px minmax(0, 1fr)', backgroundColor: tokens.colorNeutralBackground2, '@media (max-width: 760px)': { gridTemplateColumns: 'minmax(0, 1fr)' } },
+  sidebar: { position: 'sticky', top: 0, height: '100vh', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: tokens.spacingVerticalL, padding: tokens.spacingHorizontalL, backgroundColor: tokens.colorNeutralBackground1, '@media (max-width: 760px)': { position: 'static', height: 'auto' } },
+  workspace: { minWidth: 0, width: '100%', maxWidth: '1280px', boxSizing: 'border-box', marginLeft: 'auto', marginRight: 'auto', display: 'flex', flexDirection: 'column', gap: tokens.spacingVerticalL, padding: tokens.spacingHorizontalXXL, '@media (max-width: 760px)': { padding: tokens.spacingHorizontalM } },
   header: { display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: tokens.spacingHorizontalM },
-  metrics: { display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: tokens.spacingHorizontalM, '@media (max-width: 1000px)': { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }, '@media (max-width: 480px)': { gridTemplateColumns: 'minmax(0, 1fr)' } },
+  metrics: { display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: tokens.spacingHorizontalM, '@media (max-width: 760px)': { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }, '@media (max-width: 480px)': { gridTemplateColumns: 'minmax(0, 1fr)' } },
   columns: { display: 'grid', gridTemplateColumns: 'minmax(0, 1.5fr) minmax(0, 1fr)', gap: tokens.spacingHorizontalL, '@media (max-width: 1000px)': { gridTemplateColumns: 'minmax(0, 1fr)' } },
   stack: { display: 'flex', flexDirection: 'column', gap: tokens.spacingVerticalM, minWidth: 0 },
+  sidebarFooter: { marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: tokens.spacingVerticalM },
   scroll: { overflowX: 'auto', minWidth: 0 },
 });
 type Bucket = ReturnType<typeof demoDashboard>['buckets'][number];
@@ -30,8 +37,21 @@ const columns = [
 ];
 
 export function App({ demo = isDemoEnabled(import.meta.env.VITE_DEMO_MODE) || (import.meta.env.DEV && new URLSearchParams(location.search).get('demo') === 'true') }: { demo?: boolean }) {
+  useDocumentLayout();
   const styles = useStyles();
-  const backend = import.meta.env.VITE_BACKEND_URL?.trim();
+  const backend = import.meta.env.VITE_BACKEND_URL?.trim() || (import.meta.env.DEV ? 'http://localhost:8000' : '');
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [backendStatus, setBackendStatus] = useState('检查中');
+  const [connectionAttempt, setConnectionAttempt] = useState(0);
+  useEffect(() => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    setBackendStatus('检查中');
+    checkBackend(controller.signal).then(() => {
+      if (!controller.signal.aborted) setBackendStatus('已连接');
+    }).catch(() => setBackendStatus('连接失败')).finally(() => clearTimeout(timeout));
+    return () => { controller.abort(); clearTimeout(timeout); };
+  }, [connectionAttempt]);
   const [dark, setDark] = useState(true);
   const [page, setPage] = useState('总览');
   const [window, setWindow] = useState<Window>('24h');
@@ -77,28 +97,33 @@ export function App({ demo = isDemoEnabled(import.meta.env.VITE_DEMO_MODE) || (i
           {pages.map(name => <Tab key={name} value={name}>{name}</Tab>)}
         </TabList>
       </nav>
-      <Divider /><Badge appearance="outline">{demo ? '演示工作区' : '未连接工作区'}</Badge>
+      <div className={styles.sidebarFooter}>
+      <div><Divider /></div><Badge appearance="outline">{demo ? '演示工作区' : '未连接工作区'}</Badge>
       <Text size={200}>管理端 · Session / CSRF<br />权限由服务端校验</Text>
+      </div>
     </aside>
     <main className={styles.workspace}>
     <header className={styles.header}>
-      <Title1>QQ Bot 中转控制台</Title1>
+      <Title1>{page === '总览' ? '中转概览' : page}</Title1>
       <Toolbar aria-label="外观与状态">
         <Badge appearance="filled" color={demo ? 'warning' : 'informative'}>{demo ? '演示模式 · 全部数据为模拟' : '未接入真实统计'}</Badge>
         <Switch label="深色主题" checked={dark} onChange={(_, value) => setDark(value.checked)} />
       </Toolbar>
     </header>
-    <Divider />
-      {demo && <MessageBar intent="warning"><MessageBarBody>显著演示标记：所有指标、统计表与近期活动均为合成数据，不代表真实机器人、账号或服务状态。</MessageBarBody></MessageBar>}
-      <Title2>{page}</Title2>
+    <div><Divider /></div>
+    {!demo && <Account />}
+      {demo && <Text size={200}>演示工作区 · 当前数据均为模拟，不代表真实服务状态。</Text>}
       {page === '总览' ? <>
-        <p><Text>你好，欢迎查看中转概况。统计时区：UTC；范围：{demo ? '虚构演示范围（非授权结果）' : '尚未获取授权范围'}。</Text></p>
+        <Text>机器人连接、事件流量与投递健康一览</Text>
         <Toolbar aria-label="统计窗口">
           <TabList aria-label="时间范围" selectedValue={window} onTabSelect={(_, value) => changeWindow(value.value as Window)}>
             {windows.map(value => <Tab key={value} value={value}>{value}</Tab>)}
           </TabList>
           <Button icon={<ArrowClockwiseRegular />} disabled={!demo || loading} onClick={() => setRevision(value => value + 1)}>刷新</Button>
+          {demo && <Button appearance="subtle" onClick={() => setSettingsOpen(true)}>演示设置</Button>}
         </Toolbar>
+        <Dialog open={settingsOpen} onOpenChange={(_, value) => setSettingsOpen(value.open)}>
+        <DialogSurface><DialogBody><DialogTitle>演示设置</DialogTitle><DialogContent>
         {demo && <Field label="角色范围演示（不改变真实权限）"><Dropdown aria-label="角色范围演示" value={role} selectedOptions={[role]} onOptionSelect={(_, value) => setRole(value.optionValue === 'Admin' ? 'Admin' : 'Owner')}>
           <Option value="Owner">Owner</Option><Option value="Admin">Admin</Option>
         </Dropdown></Field>}
@@ -106,13 +131,13 @@ export function App({ demo = isDemoEnabled(import.meta.env.VITE_DEMO_MODE) || (i
         {demo && <Field label="演示场景（仅合成数据）"><Dropdown value={scenario} selectedOptions={[scenario]} onOptionSelect={(_, value) => setScenario(value.optionValue ?? '正常数据')}>
           {['正常数据', '空数据', '加载失败'].map(value => <Option key={value} value={value}>{value}</Option>)}
         </Dropdown></Field>}
+        </DialogContent><DialogActions><Button onClick={() => setSettingsOpen(false)}>完成</Button></DialogActions></DialogBody></DialogSurface>
+        </Dialog>
         {loading && <Spinner label="正在加载模拟统计" />}
         {error && <MessageBar intent="error"><MessageBarBody>模拟统计加载失败；未展示过期指标。<Button onClick={() => setRevision(value => value + 1)}>重试</Button></MessageBarBody></MessageBar>}
         {demo && !loading && !error && !data && <MessageBar intent="info"><MessageBarBody>所选窗口暂无模拟统计数据。</MessageBarBody></MessageBar>}
         {!demo && <MessageBar intent="info"><MessageBarBody>真实统计 API 尚未接入，不展示模拟指标。仅显式设置 VITE_DEMO_MODE=true 后启用演示。</MessageBarBody></MessageBar>}
         {demo && data && <>
-          <p>模拟数据生成时间：<time dateTime={data.generated}>{data.generated}</time>；窗口：{window}；等宽分桶：6。</p>
-          <p>模拟统计区间：{data.start} 至 {data.generated}（UTC）；桶粒度：{data.bucketMinutes} 分钟。</p>
           <section className={styles.metrics} aria-label="模拟指标">
             {[
               ['在线 Bot（当前快照）', data.online], ['窗口内唯一事件', data.events],
@@ -120,9 +145,8 @@ export function App({ demo = isDemoEnabled(import.meta.env.VITE_DEMO_MODE) || (i
               ['待重试（当前快照）', data.retry], ['死信（当前快照）', data.dead],
             ].map(([name, value]) => <Card key={name}><CardHeader image={<BotRegular />} header={<Text weight="semibold">{name}</Text>} description={<Text size={600}>{value}</Text>} /></Card>)}
           </section>
-          <p>成功率 = 成功 /（成功 + 终态失败）；不含待处理，逻辑投递与重试尝试分开计数。</p>
-          <Card><Title2>事件与调用趋势 · 模拟统计表</Title2>
-          <Text>窗口 {window} / 等宽时间桶</Text>
+          <Card><Title3 as="h3">事件与调用趋势 · 模拟统计表</Title3>
+          <Text size={200}>UTC · {window} · 每桶 {data.bucketMinutes} 分钟 · 更新于 {data.generated}</Text>
           <div className={styles.scroll}>
           <DataGrid aria-label="模拟时间分桶统计" items={data.buckets} columns={columns} getRowId={row => row.id}>
             <DataGridHeader><DataGridRow>{({ renderHeaderCell }) => <DataGridHeaderCell>{renderHeaderCell()}</DataGridHeaderCell>}</DataGridRow></DataGridHeader>
@@ -134,12 +158,12 @@ export function App({ demo = isDemoEnabled(import.meta.env.VITE_DEMO_MODE) || (i
           <section className={styles.metrics} aria-label="统计指标空态">
             {['在线 Bot（当前快照）', '窗口内唯一事件', '窗口内 API 请求', '终态投递成功率', '待重试（当前快照）', '死信（当前快照）'].map(name => <Card key={name}><CardHeader image={<BotRegular />} header={<Text weight="semibold">{name}</Text>} description={<Text size={600}>—</Text>} /><Text>{loading ? '加载中' : error ? '加载失败' : '暂无数据'}</Text></Card>)}
           </section>
-          <Card><Title2>事件与调用趋势</Title2><Text>窗口 {window} / 等宽时间桶</Text><Text>尚无可展示的时间分桶；接入后将在此显示统计。</Text></Card>
+          <Card><Title3 as="h3">事件与调用趋势</Title3><Text>窗口 {window} / 等宽时间桶</Text><Text>尚无可展示的时间分桶；接入后将在此显示统计。</Text></Card>
         </>}
-      </> : page !== '接入指南' && <Card><Title2>{page}工作区</Title2><MessageBar intent="info"><MessageBarBody>此导航为前端预览入口，{page}尚未接入管理 API，不提供伪造管理操作。</MessageBarBody></MessageBar><Text>{({ '我的 Bot': '机器人连接状态、能力与授权摘要将在这里展示。', 'API Key': '单 Bot 密钥、权限范围、到期与撤销记录将在这里展示。', '订阅端点': 'HTTP / WebSocket 订阅及投递健康状态将在这里展示。', '事件与投递': '事件检索、投递记录与重试链路将在这里展示。' } as Record<string, string>)[page]}</Text><Button onClick={() => setPage('接入指南')}>查看接入准备</Button></Card>}
+      </> : page !== '接入指南' && <Card><Title3 as="h3">{page}工作区</Title3><MessageBar intent="info"><MessageBarBody>此导航为前端预览入口，{page}尚未接入管理 API，不提供伪造管理操作。</MessageBarBody></MessageBar><Text>{({ '我的 Bot': '机器人连接状态、能力与授权摘要将在这里展示。', 'API Key': '单 Bot 密钥、权限范围、到期与撤销记录将在这里展示。', '订阅端点': 'HTTP / WebSocket 订阅及投递健康状态将在这里展示。', '事件与投递': '事件检索、投递记录与重试链路将在这里展示。' } as Record<string, string>)[page]}</Text><Button onClick={() => setPage('接入指南')}>查看接入准备</Button></Card>}
       {(page === '总览' || page === '接入指南') && <div className={styles.columns}>
         <section className={styles.stack} aria-label="近期活动">
-          <Title2>近期活动{demo ? ' · 模拟' : ''}</Title2>
+          <Title3 as="h3">近期活动{demo ? ' · 模拟' : ''}</Title3>
           {data ? <>
           <Card><CardHeader header="模拟连接异常" description={role === 'Owner' ? '全平台演示 Bot A：官方连接中断，等待重连。' : '已授权演示 Bot：连接中断，等待重连。'} /></Card>
           <Card><CardHeader header="模拟投递失败" description="演示订阅 B：回调超时，等待重试；不代表最终送达。" /></Card>
@@ -148,9 +172,10 @@ export function App({ demo = isDemoEnabled(import.meta.env.VITE_DEMO_MODE) || (i
         </section>
         <Card>
         <section className={styles.stack} aria-label="接入信息">
-        <Title2>接入信息</Title2>
+        <Title3 as="h3">接入信息</Title3>
         <Text>后端服务地址：{backend || '未配置 VITE_BACKEND_URL'}</Text>
-        <Text>地址为部署配置，不代表连通性已验证。</Text>
+        <Text>后端健康检查：{backendStatus}（不代表官方机器人在线）</Text>
+        <Button disabled={backendStatus === '检查中'} onClick={() => setConnectionAttempt(value => value + 1)}>重新检查连接</Button>
         <Button icon={<CopyRegular />} disabled={!backend} onClick={copy}>复制平台地址</Button>
         <p role="status">{feedback}</p>
         <p><Link href="https://bot.q.qq.com/wiki/develop/api-v2/">QQ 官方开发文档</Link></p>

@@ -32,7 +32,7 @@ export function inspect(name, source) {
     if (ts.isPropertyAccessExpression(node) && /^(style|cssText|insertRule|adoptedStyleSheets)$/.test(node.name.text)) errors.push('DOM 样式注入');
     if (ts.isIdentifier(node) && /^(makeResetStyles|mergeStyles|styled|css|createStyles)$/.test(node.text)) errors.push('非许可 CSS-in-JS');
     if (ts.isCallExpression(node) && node.expression.getText(ast) === 'makeStyles') {
-      const allowed = /^(display|gridTemplateColumns|gridTemplateRows|gridColumn|gap|rowGap|columnGap|flexDirection|flexWrap|flexGrow|alignItems|justifyContent|minWidth|maxWidth|width|minHeight|height|maxHeight|overflow|overflowX|overflowY|padding|paddingInline|paddingBlock|margin|backgroundColor)$/;
+      const allowed = /^(display|position|top|boxSizing|gridTemplateColumns|gridTemplateRows|gridColumn|gap|rowGap|columnGap|flexDirection|flexWrap|flexGrow|alignItems|justifyContent|minWidth|maxWidth|width|minHeight|height|maxHeight|overflow|overflowX|overflowY|padding|paddingInline|paddingBlock|margin|marginTop|marginLeft|marginRight|backgroundColor)$/;
       function layout(value, depth = 0) {
         if (!ts.isObjectLiteralExpression(value)) { errors.push('布局必须可静态审计'); return; }
         for (const prop of value.properties) {

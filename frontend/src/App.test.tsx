@@ -21,7 +21,7 @@ describe('dashboard', () => {
     expect(await screen.findByRole('grid')).toBeInTheDocument();
     for (const value of windows) {
       fireEvent.click(screen.getByRole('tab', { name: value }));
-      expect(await screen.findByText(`窗口 ${value} / 等宽时间桶`)).toBeInTheDocument();
+      expect(await screen.findByText(new RegExp(`UTC · ${value} ·`))).toBeInTheDocument();
     }
     const theme = screen.getByRole('switch');
     expect(theme).toBeChecked();
@@ -37,18 +37,22 @@ describe('dashboard', () => {
     fireEvent.click(screen.getByRole('button', { name: '刷新' }));
     expect(screen.queryByRole('grid')).not.toBeInTheDocument();
     await screen.findByRole('grid');
+    fireEvent.click(screen.getByRole('button', { name: '演示设置' }));
     fireEvent.click(screen.getByRole('combobox', { name: '演示场景（仅合成数据）' }));
     fireEvent.click(screen.getByRole('option', { name: '空数据' }));
     expect(await screen.findByText('所选窗口暂无模拟统计数据。')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('combobox', { name: '演示场景（仅合成数据）' }));
     fireEvent.click(screen.getByRole('option', { name: '加载失败' }));
     expect(await screen.findByText(/模拟统计加载失败/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '重试' }));
+    fireEvent.click(screen.getByRole('button', { name: '完成' }));
+    fireEvent.click(await screen.findByRole('button', { name: '重试' }));
     expect(screen.getByText('正在加载模拟统计')).toBeInTheDocument();
     expect(await screen.findByText(/模拟统计加载失败/)).toBeInTheDocument();
     expect(screen.queryByRole('grid')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '演示设置' }));
     fireEvent.click(screen.getByRole('combobox', { name: '演示场景（仅合成数据）' }));
     fireEvent.click(screen.getByRole('option', { name: '正常数据' }));
+    fireEvent.click(screen.getByRole('button', { name: '完成' }));
     expect(await screen.findByRole('grid')).toBeInTheDocument();
   }, 45000);
   it('cancels pending demo load when switching to real mode', async () => {
@@ -72,19 +76,21 @@ describe('dashboard', () => {
     expect(await screen.findByText('复制失败，请手动复制平台地址')).toBeInTheDocument();
     vi.unstubAllEnvs();
   });
-  it('keeps real mode structure and does not invent a backend address', () => {
+  it('keeps real mode structure and shows the configured dev backend', () => {
     render(<App demo={false} />);
     expect(screen.getByRole('region', { name: '统计指标空态' })).toBeInTheDocument();
     expect(screen.getByText('事件与调用趋势')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '复制平台地址' })).toBeDisabled();
-    expect(screen.getByText(/未配置 VITE_BACKEND_URL/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '复制平台地址' })).not.toBeDisabled();
+    expect(screen.getByText(/http:\/\/localhost:8000/)).toBeInTheDocument();
   });
   it('switches synthetic role scope without claiming authorization', async () => {
     render(<App demo />);
     await screen.findByRole('grid');
+    fireEvent.click(screen.getByRole('button', { name: '演示设置' }));
     fireEvent.click(screen.getByRole('combobox', { name: '角色范围演示' }));
     fireEvent.click(screen.getByRole('option', { name: 'Admin' }));
     expect(await screen.findByText(/Admin 演示：仅虚构已授权/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '完成' }));
     await screen.findByRole('grid');
     expect(screen.queryByText(/全平台演示 Bot A/)).not.toBeInTheDocument();
     expect(demoDashboard('24h', 'Admin').events).toBeLessThan(demoDashboard('24h', 'Owner').events);
