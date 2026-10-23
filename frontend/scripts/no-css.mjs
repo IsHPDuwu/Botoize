@@ -30,8 +30,26 @@ export function inspect(name, source) {
     }
     if (ts.isElementAccessExpression(node) && node.argumentExpression && ts.isStringLiteral(node.argumentExpression) && /^(style|cssText|insertRule|adoptedStyleSheets)$/.test(node.argumentExpression.text)) errors.push('DOM 样式注入');
     if (ts.isPropertyAccessExpression(node) && /^(style|cssText|insertRule|adoptedStyleSheets)$/.test(node.name.text)) errors.push('DOM 样式注入');
-    if (ts.isIdentifier(node) && /^(makeStyles|makeResetStyles|mergeStyles|styled|css|createStyles)$/.test(node.text)) errors.push('CSS-in-JS');
-    if (ts.isJsxAttribute(node) && /^(style|className|css|sx|dangerouslySetInnerHTML)$/.test(node.name.getText(ast))) errors.push('手写样式属性');
+    if (ts.isIdentifier(node) && /^(makeResetStyles|mergeStyles|styled|css|createStyles)$/.test(node.text)) errors.push('非许可 CSS-in-JS');
+    if (ts.isCallExpression(node) && node.expression.getText(ast) === 'makeStyles') {
+      const allowed = /^(display|gridTemplateColumns|gridTemplateRows|gridColumn|gap|rowGap|columnGap|flexDirection|flexWrap|flexGrow|alignItems|justifyContent|minWidth|maxWidth|width|minHeight|height|maxHeight|overflow|overflowX|overflowY|padding|paddingInline|paddingBlock|margin|backgroundColor)$/;
+      function layout(value, depth = 0) {
+        if (!ts.isObjectLiteralExpression(value)) { errors.push('布局必须可静态审计'); return; }
+        for (const prop of value.properties) {
+          if (!ts.isPropertyAssignment(prop)) { errors.push('布局禁止展开或方法'); continue; }
+          const key = prop.name.getText(ast).replace(/^['"]|['"]$/g, '');
+          if (depth === 0 || key.startsWith('@media')) { layout(prop.initializer, depth + 1); continue; }
+          if (!allowed.test(key)) errors.push('非布局样式或内部选择器');
+          if (/^(gap|rowGap|columnGap|padding.*|margin|backgroundColor)$/.test(key) && !/^tokens\./.test(prop.initializer.getText(ast))) errors.push('语义容器必须使用官方 tokens');
+        }
+      }
+      if (node.arguments[0]) layout(node.arguments[0]);
+    }
+    if (ts.isJsxAttribute(node) && node.name.getText(ast) === 'className') {
+      const tag = node.parent.parent.tagName.getText(ast);
+      if (!/^(div|main|aside|header|section|nav|footer)$/.test(tag) || !node.initializer || !ts.isJsxExpression(node.initializer) || !node.initializer.expression || !/^styles\.[A-Za-z]+$/.test(node.initializer.expression.getText(ast))) errors.push('仅语义布局容器可绑定布局类');
+    }
+    if (ts.isJsxAttribute(node) && /^(style|css|sx|dangerouslySetInnerHTML)$/.test(node.name.getText(ast))) errors.push('手写样式属性');
     if (ts.isJsxSpreadAttribute(node)) errors.push('不可审计的 JSX 属性展开');
     if (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) {
       if (/^(style|button|input|select|option|textarea|table|thead|tbody|tr|th|td|dialog|progress|meter|svg|canvas)$/.test(node.tagName.getText(ast))) errors.push('原生替代控件或样式');
