@@ -60,6 +60,10 @@ class EventOutbox(models.Model):
     grant = models.ForeignKey(BotGrant, on_delete=models.CASCADE)
     grant_revision = models.PositiveBigIntegerField()
     state = models.CharField(max_length=20, default='pending')
+    lease_token = models.UUIDField(null=True, editable=False)
+    lease_until = models.DateTimeField(null=True)
+    attempts = models.PositiveIntegerField(default=0)
+    available_at = models.DateTimeField(null=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

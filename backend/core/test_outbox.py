@@ -7,8 +7,59 @@ from django.core.management import call_command
 from .events import ingest_event
 from .models import Bot, BotGrant, EventOutbox, User
 from .outbox import scan_outbox
+from .outbox import claim_outbox, finish_outbox, validate_lease
+from django.utils import timezone
+from datetime import timedelta
 
 pytestmark = pytest.mark.django_db
+
+
+def test_lease_exclusive_and_stale_ack_rejected():
+    _, row = pending()
+    [(pk, old)] = claim_outbox()
+    assert claim_outbox() == []
+    EventOutbox.objects.filter(pk=pk).update(lease_until=timezone.now() - timedelta(seconds=1))
+    [(same_pk, new)] = claim_outbox()
+    assert same_pk == pk and old != new
+    assert not finish_outbox(pk, old, True)
+    assert finish_outbox(pk, new, True)
+    row.refresh_from_db()
+    assert row.state == 'delivered' and row.attempts == 2
+    assert not finish_outbox(pk, new, True)
+
+
+def test_retry_backoff_and_exhaustion():
+    _, row = pending()
+    [(pk, token)] = claim_outbox()
+    assert finish_outbox(pk, token, False, max_attempts=2)
+    assert claim_outbox() == []
+    row.refresh_from_db()
+    assert row.state == 'pending' and row.available_at > timezone.now()
+    EventOutbox.objects.filter(pk=pk).update(available_at=timezone.now() - timedelta(seconds=1))
+    [(pk, token)] = claim_outbox()
+    assert finish_outbox(pk, token, False, max_attempts=2)
+    row.refresh_from_db()
+    assert row.state == 'failed' and claim_outbox() == []
+
+
+def test_revocation_during_lease_cancels_work():
+    grant, row = pending()
+    [(pk, token)] = claim_outbox()
+    grant.revision += 1
+    grant.save()
+    assert not validate_lease(pk, token)
+    assert not finish_outbox(pk, token, True)
+    row.refresh_from_db()
+    assert row.state == 'cancelled'
+
+
+def test_claim_cancels_invalid_snapshot():
+    grant, row = pending()
+    grant.is_active = False
+    grant.save()
+    assert claim_outbox() == []
+    row.refresh_from_db()
+    assert row.state == 'cancelled'
 
 
 def pending():
