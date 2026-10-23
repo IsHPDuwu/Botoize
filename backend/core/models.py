@@ -44,6 +44,29 @@ class ApiKey(models.Model):
     revoked_at = models.DateTimeField(null=True, blank=True)
 
 
+class Event(models.Model):
+    bot = models.ForeignKey(Bot, on_delete=models.CASCADE)
+    event_id = models.CharField(max_length=200)
+    event_type = models.CharField(max_length=100)
+    payload = models.JSONField()
+    received_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['bot', 'event_id'], name='unique_bot_event')]
+
+
+class EventOutbox(models.Model):
+    event = models.ForeignKey(Event, on_delete=models.CASCADE)
+    grant = models.ForeignKey(BotGrant, on_delete=models.CASCADE)
+    grant_revision = models.PositiveBigIntegerField()
+    state = models.CharField(max_length=20, default='pending')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['event', 'grant'], name='unique_event_grant')]
+        indexes = [models.Index(fields=['state', 'id'], name='outbox_scan')]
+
+
 class AuditLog(models.Model):
     actor = models.CharField(max_length=150)
     action = models.CharField(max_length=80)
