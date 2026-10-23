@@ -1,5 +1,6 @@
 """Official credential transport; never accepts a downstream URL."""
 import json
+import re
 from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
@@ -57,10 +58,26 @@ def access_token(bot):
 
 def get_self(bot, query=''):
     """Only the documented /users/@me operation; URL is not caller-controlled."""
-    url = 'https://api.bot.qq.com/users/@me'
+    return _request(bot, 'GET', 'users/@me', query)
+
+
+MESSAGE_PATH = re.compile(r'v2/(?:users|groups)/[A-Za-z0-9_-]{1,128}/messages')
+
+
+def send_message(bot, path, body, query=''):
+    if not MESSAGE_PATH.fullmatch(path):
+        raise ValueError('Unregistered official path')
+    return _request(bot, 'POST', path, query, body)
+
+
+def _request(bot, method, path, query='', body=None):
+    url = 'https://api.bot.qq.com/' + path
     if query:
         url += '?' + query
-    request = Request(url, headers={'Authorization': 'QQBot ' + access_token(bot)}, method='GET')
+    headers = {'Authorization': 'QQBot ' + access_token(bot)}
+    if body is not None:
+        headers['Content-Type'] = 'application/json; charset=utf-8'
+    request = Request(url, data=body, headers=headers, method=method)
     try:
         try:
             response = build_opener(NoRedirect()).open(request, timeout=10)

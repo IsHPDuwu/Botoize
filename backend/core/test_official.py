@@ -6,7 +6,7 @@ from urllib.error import URLError
 import pytest
 from django.core.cache import cache
 
-from .official import OfficialCredentialError, access_token, get_self, NoRedirect, TOKEN_URL, MAX_RESPONSE_BYTES
+from .official import OfficialCredentialError, access_token, get_self, send_message, NoRedirect, TOKEN_URL, MAX_RESPONSE_BYTES
 from .services import encrypt_secret
 
 
@@ -81,6 +81,29 @@ def test_self_query_uses_only_official_authorization_and_raw_response():
     assert request.get_header('Authorization') == 'QQBot official-token'
     assert status == 200 and raw == b'{"id":"bot"}'
     assert 'Set-Cookie' not in headers
+
+
+def test_send_transport_preserves_body_and_uses_fixed_origin():
+    opener = MagicMock()
+    response = opener.open.return_value.__enter__.return_value
+    response.code = 202
+    response.headers = {}
+    response.read.return_value = b'{}'
+    raw = b'{ "msg_seq": 9 }'
+    with patch('core.official.access_token', return_value='token'), patch('core.official.build_opener', return_value=opener):
+        assert send_message(bot(), 'v2/groups/openid/messages', raw)[0] == 202
+    request = opener.open.call_args.args[0]
+    assert request.full_url == 'https://api.bot.qq.com/v2/groups/openid/messages'
+    assert request.data == raw and request.method == 'POST'
+    assert opener.open.call_count == 1
+
+
+@pytest.mark.parametrize('path', ['https://evil.test', 'v2/users/../messages', 'v2/users/a%2fb/messages', 'v2/users/a/messages/extra'])
+def test_send_transport_rejects_unregistered_path(path):
+    with patch('core.official.access_token') as credentials:
+        with pytest.raises(ValueError):
+            send_message(bot(), path, b'{}')
+        credentials.assert_not_called()
 
 
 @pytest.mark.parametrize('code,size', [(302, 0), (200, MAX_RESPONSE_BYTES + 1)])

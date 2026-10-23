@@ -72,6 +72,43 @@ def test_my_grants_are_explicit_live_and_private(setup):
     assert client(a).get('/api/v1/my-grants/').json() == []
 
 
+@pytest.mark.parametrize('kind', ['users', 'groups'])
+def test_message_proxy_preserves_native_json_and_async_status(setup, kind):
+    a, b, o, bot, other = setup
+    key, token = issue_key(a, bot, 'send', ['messages:send'])
+    c = APIClient()
+    c.credentials(HTTP_AUTHORIZATION='Bearer ' + token)
+    raw = b'{ "msg_type": 0, "content":"hello", "msg_seq":7, "msg_id":"original" }'
+    with patch('core.views.send_message', return_value=(202, b'{"err_code":304024}', {'Content-Type': 'application/json'})) as upstream:
+        response = c.post(f'/qq/v2/{kind}/openid/messages', raw, content_type='application/json')
+        assert response.status_code == 202
+        assert response.content == b'{"err_code":304024}'
+        assert upstream.call_args.args[2] == raw
+        upstream.assert_called_once()
+
+
+def test_message_proxy_denies_scope_and_does_not_retry_unknown_outcome(setup):
+    from .official import OfficialCredentialError
+    a, b, o, bot, other = setup
+    key, token = issue_key(a, bot, 'read', ['query:read'])
+    c = APIClient()
+    c.credentials(HTTP_AUTHORIZATION='Bearer ' + token)
+    with patch('core.views.send_message') as upstream:
+        assert c.post('/qq/v2/users/openid/messages', {}, format='json').status_code == 403
+        upstream.assert_not_called()
+    key, token = issue_key(a, bot, 'send', ['messages:send'])
+    c.credentials(HTTP_AUTHORIZATION='Bearer ' + token)
+    with patch('core.views.send_message', side_effect=OfficialCredentialError) as upstream:
+        response = c.post('/qq/v2/users/openid/messages', {'msg_type': 0}, format='json')
+        assert response.status_code == 502
+        assert response.json()['code'] == 'official_outcome_unknown'
+        upstream.assert_called_once()
+    with patch('core.views.send_message') as upstream:
+        assert c.post('/qq/v2/users/openid/messages', {'bot_id': other.pk}, format='json').status_code == 403
+        assert c.post('/qq/v2/users/openid/files', {}, format='json').status_code == 501
+        upstream.assert_not_called()
+
+
 def test_official_query_preserves_response_and_checks_scope(setup):
     a, b, o, bot, other = setup
     key, token = issue_key(a, bot, 'query', ['query:read'])

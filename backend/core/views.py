@@ -12,7 +12,7 @@ from rest_framework.exceptions import PermissionDenied, ValidationError, Authent
 from rest_framework import serializers
 from .models import User, Bot, BotGrant, ApiKey, AuditLog
 from .services import authorize, encrypt_secret, issue_key, validate_scopes
-from .official import get_self, OfficialCredentialError
+from .official import get_self, send_message, MESSAGE_PATH, OfficialCredentialError
 
 
 def fields(data, allowed, required=()):
@@ -183,10 +183,36 @@ class Capabilities(APIView):
 
     def get(self, request):
         operations = ['GET /users/@me'] if 'query:read' in request.effective_scopes else []
+        if 'messages:send' in request.effective_scopes:
+            operations += ['POST /v2/users/{user_openid}/messages', 'POST /v2/groups/{group_openid}/messages']
         return Response({'bot_id': request.auth.bot_id, 'scopes': request.effective_scopes, 'proxy_enabled': bool(operations), 'websocket_enabled': False, 'operations': operations})
 
 
 class Proxy(Capabilities):
+    def post(self, request, path=''):
+        if not request.path.startswith('/qq/') or not MESSAGE_PATH.fullmatch(path):
+            return self.denied(request, path)
+        if 'messages:send' not in request.effective_scopes:
+            raise PermissionDenied('messages:send required')
+        raw = request.body
+        if len(raw) > 1048576:
+            return Response({'code': 'body_too_large', 'source': 'platform'}, status=413)
+        if request.content_type != 'application/json':
+            return Response({'code': 'json_required', 'source': 'platform'}, status=415)
+        if not isinstance(request.data, dict):
+            raise ValidationError('JSON object required')
+        if 'bot_id' in request.data and str(request.data['bot_id']) != str(request.auth.bot_id):
+            raise PermissionDenied('Bot mismatch')
+        try:
+            status, body, headers = send_message(request.auth.bot, path, raw, request.META.get('QUERY_STRING', ''))
+        except OfficialCredentialError:
+            return Response({'code': 'official_outcome_unknown', 'source': 'platform', 'detail': 'Send outcome unknown; do not blindly retry'}, status=502)
+        response = HttpResponse(body, status=status)
+        for name, value in headers.items():
+            response[name] = value
+        response['Cache-Control'] = 'no-store'
+        return response
+
     def get(self, request, path=''):
         if request.path.startswith('/qq/') and path == 'users/@me':
             if 'query:read' not in request.effective_scopes:
@@ -207,4 +233,4 @@ class Proxy(Capabilities):
             raise PermissionDenied('Bot mismatch')
         return Response({'code': 'proxy_not_available', 'source': 'platform', 'detail': 'Official proxy and OneBot are not implemented'}, status=501)
 
-    post = put = patch = delete = denied
+    put = patch = delete = denied
