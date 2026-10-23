@@ -71,6 +71,14 @@ class EventOutbox(models.Model):
         indexes = [models.Index(fields=['state', 'id'], name='outbox_scan')]
 
 
+class HttpSubscription(models.Model):
+    grant = models.OneToOneField(BotGrant, on_delete=models.CASCADE)
+    grant_revision = models.PositiveBigIntegerField()
+    url = models.URLField(max_length=2048)
+    is_active = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
 class AuditLog(models.Model):
     actor = models.CharField(max_length=150)
     action = models.CharField(max_length=80)
