@@ -1,8 +1,9 @@
 import pytest
 from rest_framework.test import APIClient
+from django.utils import timezone
 
 from .events import ingest_event
-from .models import Bot, BotGrant, User
+from .models import ApiKey, Bot, BotGrant, User
 from .services import issue_key
 
 pytestmark = pytest.mark.django_db
@@ -60,3 +61,34 @@ def test_scope_and_cursor_validation():
     client.credentials(HTTP_AUTHORIZATION='Bearer ' + token)
     assert client.get('/relay/v1/events/').status_code == 403
     assert APIClient().get('/relay/v1/events/').status_code == 401
+
+
+def test_later_recipient_cannot_read_replayed_historical_event():
+    bot, user, grant, first = setup_reader()
+    emit(bot, 'historical')
+    later = User.objects.create_user('later-reader')
+    BotGrant.objects.create(user=later, bot=bot, scopes=['events:read'])
+    key, token = issue_key(later, bot, 'later', ['events:read'])
+    second = APIClient()
+    second.credentials(HTTP_AUTHORIZATION='Bearer ' + token)
+    # Official retries must not create new historical recipient snapshots.
+    emit(bot, 'historical')
+    assert second.get('/relay/v1/events/').json()['events'] == []
+    emit(bot, 'current')
+    assert [row['payload']['id'] for row in second.get('/relay/v1/events/').json()['events']] == ['current']
+    assert [row['payload']['id'] for row in first.get('/relay/v1/events/').json()['events']] == ['historical', 'current']
+
+
+def test_revoked_key_and_disabled_account_stop_event_access():
+    bot, user, grant, client = setup_reader()
+    emit(bot, 'private')
+    key, token = issue_key(user, bot, 'revocable', ['events:read'])
+    client.credentials(HTTP_AUTHORIZATION='Bearer ' + token)
+    assert client.get('/relay/v1/events/').status_code == 200
+    ApiKey.objects.filter(pk=key.pk).update(revoked_at=timezone.now())
+    assert client.get('/relay/v1/events/').status_code == 401
+    key, token = issue_key(user, bot, 'account-check', ['events:read'])
+    client.credentials(HTTP_AUTHORIZATION='Bearer ' + token)
+    user.is_active = False
+    user.save()
+    assert client.get('/relay/v1/events/').status_code in (401, 403)
