@@ -63,6 +63,22 @@ def test_scope_and_cursor_validation():
     assert APIClient().get('/relay/v1/events/').status_code == 401
 
 
+def test_management_events_are_session_scoped_and_revision_filtered():
+    bot, user, grant, bearer = setup_reader()
+    emit(bot, 'private')
+    session = APIClient()
+    session.force_login(user)
+    assert session.get('/api/v1/events/').json()['events'][0]['event_id'] == 'private'
+    assert session.get('/api/v1/events/?before=invalid').status_code == 400
+    grant.revision += 1
+    grant.save()
+    assert session.get('/api/v1/events/').json()['events'] == []
+    owner = User.objects.create_user('owner', role='Owner')
+    session.force_login(owner)
+    assert session.get('/api/v1/events/').json()['events'][0]['event_id'] == 'private'
+    assert APIClient().get('/api/v1/events/').status_code == 403
+
+
 def test_later_recipient_cannot_read_replayed_historical_event():
     bot, user, grant, first = setup_reader()
     emit(bot, 'historical')

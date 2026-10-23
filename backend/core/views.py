@@ -3,6 +3,7 @@ from django.middleware.csrf import get_token
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from django.db import transaction
+from django.db.models import F
 from django.utils import timezone
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -10,7 +11,7 @@ from rest_framework.authentication import BaseAuthentication, SessionAuthenticat
 from rest_framework.permissions import AllowAny
 from rest_framework.exceptions import PermissionDenied, ValidationError, AuthenticationFailed
 from rest_framework import serializers
-from .models import User, Bot, BotGrant, ApiKey, AuditLog, EventOutbox
+from .models import User, Bot, BotGrant, ApiKey, AuditLog, Event, EventOutbox
 from .services import authorize, encrypt_secret, issue_key, validate_scopes
 from .official import get_self, send_message, MESSAGE_PATH, OfficialCredentialError
 
@@ -186,6 +187,32 @@ class Capabilities(APIView):
         if 'messages:send' in request.effective_scopes:
             operations += ['POST /v2/users/{user_openid}/messages', 'POST /v2/groups/{group_openid}/messages']
         return Response({'bot_id': request.auth.bot_id, 'scopes': request.effective_scopes, 'proxy_enabled': bool(operations), 'websocket_enabled': False, 'operations': operations})
+
+
+class ManagementEvents(APIView):
+    def get(self, request):
+        before = request.query_params.get('before', '')
+        if before and (not before.isascii() or not before.isdigit() or len(before) > 18):
+            raise ValidationError({'before': 'Positive integer required'})
+        events = Event.objects.all()
+        if request.user.role != 'Owner':
+            snapshots = EventOutbox.objects.filter(
+                grant__user=request.user, grant__is_active=True,
+                grant__bot__is_active=True, grant_revision=F('grant__revision'),
+            ).select_related('grant')
+            # JSON containment is not supported by the SQLite development DB.
+            allowed = [row.pk for row in BotGrant.objects.filter(user=request.user, is_active=True) if 'events:read' in row.scopes]
+            events = events.filter(pk__in=snapshots.filter(grant_id__in=allowed).values('event_id'))
+        if before:
+            events = events.filter(pk__lt=int(before))
+        rows = list(events.order_by('-id')[:51])
+        page = rows[:50]
+        response = Response({
+            'events': [{'id': row.pk, 'bot': row.bot_id, 'event_id': row.event_id, 'event_type': row.event_type, 'received_at': row.received_at, 'payload': row.payload} for row in page],
+            'next_before': str(page[-1].pk) if page else None, 'has_more': len(rows) > 50,
+        })
+        response['Cache-Control'] = 'no-store'
+        return response
 
 
 class RelayEvents(Capabilities):

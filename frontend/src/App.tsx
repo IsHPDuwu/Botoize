@@ -12,6 +12,7 @@ import { CopyRegular, ArrowClockwiseRegular, BotRegular } from '@fluentui/react-
 import { demoDashboard, isDemoEnabled, windows, type Window } from './dashboard';
 import { checkBackend, management, type SessionUser } from './api';
 import { Account } from './Account';
+import { Events } from './Events';
 import { Login } from './Login';
 
 const pages = ['总览', '我的 Bot', 'API Key', '订阅端点', '事件与投递', '接入指南'];
@@ -136,6 +137,7 @@ function Workspace({ demo, user, onLogout }: { demo: boolean; user: SessionUser 
     </header>
     <div><Divider /></div>
     {!demo && ['我的 Bot', 'API Key', 'Bot 授权'].includes(page) && <Account key={page} initialUser={user ?? undefined} section={page} />}
+    {!demo && page === '事件与投递' && <Events />}
       {demo && <Text size={200}>演示工作区 · 当前数据均为模拟，不代表真实服务状态。</Text>}
       {page === '总览' ? <>
         <Text>机器人连接、事件流量与投递健康一览</Text>
@@ -184,7 +186,7 @@ function Workspace({ demo, user, onLogout }: { demo: boolean; user: SessionUser 
           </section>
           <Card><Title3 as="h3">事件与调用趋势</Title3><Text>窗口 {window} / 等宽时间桶</Text><Text>尚无可展示的时间分桶；接入后将在此显示统计。</Text></Card>
         </>}
-      </> : page !== '接入指南' && (demo || !['我的 Bot', 'API Key', 'Bot 授权'].includes(page)) && <Card><Title3 as="h3">{page}工作区</Title3><MessageBar intent="info"><MessageBarBody>此导航为前端预览入口，{page}尚未接入管理 API，不提供伪造管理操作。</MessageBarBody></MessageBar><Text>{({ '我的 Bot': '机器人连接状态、能力与授权摘要将在这里展示。', 'API Key': '单 Bot 密钥、权限范围、到期与撤销记录将在这里展示。', '订阅端点': 'HTTP / WebSocket 订阅及投递健康状态将在这里展示。', '事件与投递': '事件检索、投递记录与重试链路将在这里展示。' } as Record<string, string>)[page]}</Text><Button onClick={() => setPage('接入指南')}>查看接入准备</Button></Card>}
+      </> : page !== '接入指南' && (demo || !['我的 Bot', 'API Key', 'Bot 授权', '事件与投递'].includes(page)) && <Card><Title3 as="h3">{page}工作区</Title3><MessageBar intent="info"><MessageBarBody>此导航为前端预览入口，{page}尚未接入管理 API，不提供伪造管理操作。</MessageBarBody></MessageBar><Text>{({ '我的 Bot': '机器人连接状态、能力与授权摘要将在这里展示。', 'API Key': '单 Bot 密钥、权限范围、到期与撤销记录将在这里展示。', '订阅端点': 'HTTP / WebSocket 订阅及投递健康状态将在这里展示。', '事件与投递': '事件检索、投递记录与重试链路将在这里展示。' } as Record<string, string>)[page]}</Text><Button onClick={() => setPage('接入指南')}>查看接入准备</Button></Card>}
       {(page === '总览' || page === '接入指南') && <div className={styles.columns}>
         <section className={styles.stack} aria-label="近期活动">
           <Title3 as="h3">近期活动{demo ? ' · 模拟' : ''}</Title3>
