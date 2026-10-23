@@ -2,10 +2,17 @@
 
 ## 启动与配置
 
-Python 3.13 已验证。安装 requirements.txt 后，从 backend 工作目录使用
-`manage.py migrate`，再用 `manage.py owner init USERNAME` 初始化 Owner；密码通过
+Python 3.13 已验证。后端统一使用 uv：从 backend 工作目录运行
+`uv sync --locked`，依赖由 pyproject.toml 声明、uv.lock 锁定，环境独立位于
+`backend/.venv`，不要使用系统包或其他项目的虚拟环境，也不要使用 `--active`。
+开发依赖默认安装；生产安装使用 `uv sync --locked --no-dev`。
+新增/更新依赖使用 `uv add` / `uv lock`，同时提交声明与锁文件。
+联网如需代理，可在当前终端为 HTTP_PROXY、HTTPS_PROXY 设置
+`http://127.0.0.1:7890`；Python 包使用官方 PyPI，不使用 npm 镜像。
+使用 `uv run --locked python manage.py migrate`，再用
+`uv run --locked python manage.py owner init USERNAME` 初始化 Owner；密码通过
 终端隐藏输入（至少 12 字符），不放命令行参数。启动 ASGI 入口为
-`config.asgi:application`，开发可用 `manage.py runserver`。
+`config.asgi:application`，开发可用 `uv run --locked python manage.py runserver`。
 
 环境变量由启动器导入，**不会自动读取 .env**。必须设置随机
 DJANGO_SECRET_KEY 和 BOT_ENCRYPTION_KEY（cryptography Fernet.generate_key() 的结果）。
@@ -58,7 +65,10 @@ scope 仅为授权底座登记，不表示相应官方操作已经实现。统�
 
 ## 验证与边界
 
-在 backend 目录运行 pytest；pytest.ini 指向独立 test_settings（测试专用 SQLite、
+在 backend 目录运行 `uv run --locked pytest`，并运行
+`uv run --locked python manage.py check --settings=config.test_settings` 和
+`uv run --locked python manage.py makemigrations --check --dry-run --settings=config.test_settings`。
+pytest.ini 指向独立 test_settings（测试专用 SQLite、
 快速密码哈希和固定测试密钥，严禁部署）。初始迁移已提交。
 
 未实现：邀请、配额、登录防爆破、统一 request_id/错误包装、分页/OpenAPI、
