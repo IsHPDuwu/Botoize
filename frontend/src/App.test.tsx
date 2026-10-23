@@ -94,6 +94,24 @@ describe('dashboard', () => {
     expect(screen.queryByText('中转概览')).toBeNull();
     expect(screen.queryByText('真实管理会话')).toBeNull();
   });
+  it('separates real management pages and returns to login after logout', async () => {
+    render(<App demo={false} />);
+    await screen.findByText('中转概览');
+    expect(screen.queryByLabelText('操作确认密码')).toBeNull();
+    fireEvent.click(screen.getByRole('tab', { name: '我的 Bot' }));
+    await screen.findByText('暂无可访问的 Bot。');
+    expect(screen.queryByRole('button', { name: '创建单 Bot Key' })).toBeNull();
+    fireEvent.change(screen.getByLabelText('操作确认密码'), { target: { value: 'do-not-retain' } });
+    fireEvent.click(screen.getByRole('tab', { name: 'API Key' }));
+    await screen.findByRole('button', { name: '创建单 Bot Key' });
+    expect(screen.getByLabelText('操作确认密码')).toHaveValue('');
+    expect(screen.queryByText('可访问的 Bot')).toBeNull();
+    expect(screen.queryByRole('tab', { name: 'Bot 授权' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '退出登录' }));
+    await screen.findByRole('heading', { name: '登录 Bot Proxy' });
+    expect(management).toHaveBeenCalledWith('auth/logout/', {});
+    expect(screen.queryByRole('navigation')).toBeNull();
+  });
   it('switches synthetic role scope without claiming authorization', async () => {
     render(<App demo />);
     await screen.findByRole('grid');

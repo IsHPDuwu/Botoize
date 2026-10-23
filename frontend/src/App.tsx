@@ -49,10 +49,10 @@ export function App({ demo = isDemoEnabled(import.meta.env.VITE_DEMO_MODE) || (i
   }, [demo]);
   if (!demo && checking) return <FluentProvider theme={webDarkTheme}><Spinner label="正在检查登录状态" /></FluentProvider>;
   if (!demo && !session) return <FluentProvider theme={webDarkTheme}><Login onLogin={setSession} /></FluentProvider>;
-  return <Workspace demo={demo} onLogout={() => setSession(null)} />;
+  return <Workspace demo={demo} user={session} onLogout={() => setSession(null)} />;
 }
 
-function Workspace({ demo, onLogout }: { demo: boolean; onLogout: () => void }) {
+function Workspace({ demo, user, onLogout }: { demo: boolean; user: SessionUser | null; onLogout: () => void }) {
   useDocumentLayout();
   const styles = useStyles();
   const backend = import.meta.env.VITE_BACKEND_URL?.trim() || (import.meta.env.DEV ? 'http://localhost:8000' : '');
@@ -91,6 +91,13 @@ function Workspace({ demo, onLogout }: { demo: boolean; onLogout: () => void }) 
     return () => clearTimeout(timer);
   }, [demo, window, scenario, revision, role]);
   const [feedback, setFeedback] = useState('');
+  const [logoutBusy, setLogoutBusy] = useState(false);
+  async function logoutSession() {
+    setLogoutBusy(true);
+    try { await management('auth/logout/', {}); onLogout(); }
+    catch { setFeedback('退出失败，请重试'); }
+    finally { setLogoutBusy(false); }
+  }
   function changeWindow(value: Window) {
     setWindow(value);
   }
@@ -110,11 +117,12 @@ function Workspace({ demo, onLogout }: { demo: boolean; onLogout: () => void }) 
       <Text>QQ 官方机器人中转平台</Text>
       <nav aria-label="主导航">
         <TabList vertical selectedValue={page} onTabSelect={(_, value) => setPage(String(value.value))}>
-          {pages.map(name => <Tab key={name} value={name}>{name}</Tab>)}
+          {[...pages, ...(!demo && user?.role === 'Owner' ? ['Bot 授权'] : [])].map(name => <Tab key={name} value={name}>{name}</Tab>)}
         </TabList>
       </nav>
       <div className={styles.sidebarFooter}>
-      <div><Divider /></div><Badge appearance="outline">{demo ? '演示工作区' : '未连接工作区'}</Badge>
+      <div><Divider /></div><Badge appearance="outline">{demo ? '演示工作区' : `${user?.username} · ${user?.role}`}</Badge>
+      {!demo && <Button disabled={logoutBusy} onClick={logoutSession}>退出登录</Button>}
       <Text size={200}>管理端 · Session / CSRF<br />权限由服务端校验</Text>
       </div>
     </aside>
@@ -127,7 +135,7 @@ function Workspace({ demo, onLogout }: { demo: boolean; onLogout: () => void }) 
       </Toolbar>
     </header>
     <div><Divider /></div>
-    {!demo && <Account onLogout={onLogout} />}
+    {!demo && ['我的 Bot', 'API Key', 'Bot 授权'].includes(page) && <Account key={page} initialUser={user ?? undefined} section={page} />}
       {demo && <Text size={200}>演示工作区 · 当前数据均为模拟，不代表真实服务状态。</Text>}
       {page === '总览' ? <>
         <Text>机器人连接、事件流量与投递健康一览</Text>
@@ -176,7 +184,7 @@ function Workspace({ demo, onLogout }: { demo: boolean; onLogout: () => void }) 
           </section>
           <Card><Title3 as="h3">事件与调用趋势</Title3><Text>窗口 {window} / 等宽时间桶</Text><Text>尚无可展示的时间分桶；接入后将在此显示统计。</Text></Card>
         </>}
-      </> : page !== '接入指南' && <Card><Title3 as="h3">{page}工作区</Title3><MessageBar intent="info"><MessageBarBody>此导航为前端预览入口，{page}尚未接入管理 API，不提供伪造管理操作。</MessageBarBody></MessageBar><Text>{({ '我的 Bot': '机器人连接状态、能力与授权摘要将在这里展示。', 'API Key': '单 Bot 密钥、权限范围、到期与撤销记录将在这里展示。', '订阅端点': 'HTTP / WebSocket 订阅及投递健康状态将在这里展示。', '事件与投递': '事件检索、投递记录与重试链路将在这里展示。' } as Record<string, string>)[page]}</Text><Button onClick={() => setPage('接入指南')}>查看接入准备</Button></Card>}
+      </> : page !== '接入指南' && (demo || !['我的 Bot', 'API Key', 'Bot 授权'].includes(page)) && <Card><Title3 as="h3">{page}工作区</Title3><MessageBar intent="info"><MessageBarBody>此导航为前端预览入口，{page}尚未接入管理 API，不提供伪造管理操作。</MessageBarBody></MessageBar><Text>{({ '我的 Bot': '机器人连接状态、能力与授权摘要将在这里展示。', 'API Key': '单 Bot 密钥、权限范围、到期与撤销记录将在这里展示。', '订阅端点': 'HTTP / WebSocket 订阅及投递健康状态将在这里展示。', '事件与投递': '事件检索、投递记录与重试链路将在这里展示。' } as Record<string, string>)[page]}</Text><Button onClick={() => setPage('接入指南')}>查看接入准备</Button></Card>}
       {(page === '总览' || page === '接入指南') && <div className={styles.columns}>
         <section className={styles.stack} aria-label="近期活动">
           <Title3 as="h3">近期活动{demo ? ' · 模拟' : ''}</Title3>
