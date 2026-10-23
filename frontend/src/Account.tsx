@@ -3,6 +3,7 @@ import { Button, Card, Field, Input, MessageBar, MessageBarBody, Text, Title3, S
 import { management, type SessionUser, type BotInfo, type KeyInfo } from './api';
 
 interface Grant { id: number; user_id: number; bot_id: number; scopes: string[]; is_active: boolean; revision: number }
+interface MyGrant { bot: BotInfo; scopes: string[]; revision: number }
 const scopes = ['events:read', 'messages:send', 'media:upload', 'query:read'];
 
 export function Account({ initialUser, section = '全部' }: { initialUser?: SessionUser; section?: string } = {}) {
@@ -17,7 +18,8 @@ export function Account({ initialUser, section = '全部' }: { initialUser?: Ses
   const [secret, setSecret] = useState('');
   const [botId, setBotId] = useState('');
   const [keyName, setKeyName] = useState('');
-  const [scopeText, setScopeText] = useState('');
+  const [keyScopes, setKeyScopes] = useState<string[]>([]);
+  const [myGrants, setMyGrants] = useState<MyGrant[]>([]);
   const [issuedToken, setIssuedToken] = useState('');
   const [grants, setGrants] = useState<Grant[]>([]);
   const [grantUser, setGrantUser] = useState('');
@@ -33,8 +35,10 @@ export function Account({ initialUser, section = '全部' }: { initialUser?: Ses
     finally { setPassword(''); setSecret(''); setBusy(false); }
   }
   async function load() {
-    const [botList, keyList] = await Promise.all([management<BotInfo[]>('bots/'), management<KeyInfo[]>('keys/')]);
+    const [botList, keyList, ownGrants] = await Promise.all([management<BotInfo[]>('bots/'), management<KeyInfo[]>('keys/'), management<MyGrant[]>('my-grants/')]);
     setBots(botList); setKeys(keyList);
+    setMyGrants(ownGrants);
+    setKeyScopes(current => current.filter(scope => ownGrants.find(grant => String(grant.bot.id) === botId)?.scopes.includes(scope)));
     if (user?.role === 'Owner') setGrants(await management<Grant[]>('grants/'));
   }
   useEffect(() => {
@@ -79,10 +83,12 @@ export function Account({ initialUser, section = '全部' }: { initialUser?: Ses
       </>}
       {['全部', 'API Key'].includes(section) && <>
       <Title3 as="h3">我的 API Key</Title3>
-      <Field label="绑定的 Bot"><Dropdown selectedOptions={botId ? [botId] : []} value={bots.find(bot => String(bot.id) === botId)?.name ?? ''} onOptionSelect={(_, data) => setBotId(data.optionValue ?? '')}>{bots.filter(bot => bot.is_active).map(bot => <Option key={bot.id} value={String(bot.id)}>{bot.name}</Option>)}</Dropdown></Field>
+      <Field label="绑定的 Bot"><Dropdown selectedOptions={botId ? [botId] : []} value={myGrants.find(grant => String(grant.bot.id) === botId)?.bot.name ?? ''} onOptionSelect={(_, data) => { setBotId(data.optionValue ?? ''); setKeyScopes([]); }}>{myGrants.map(grant => <Option key={grant.bot.id} value={String(grant.bot.id)}>{grant.bot.name}</Option>)}</Dropdown></Field>
+      {!myGrants.length && <Text>暂无可用于创建 Key 的有效 Bot 授权。Owner 也需要显式授权。</Text>}
       <Field label="Key 名称"><Input value={keyName} onChange={(_, data) => setKeyName(data.value)} /></Field>
-      <Field label="权限 scope（逗号分隔，须已获授权）"><Input value={scopeText} onChange={(_, data) => setScopeText(data.value)} /></Field>
-      <Button disabled={busy || !password || !/^\d+$/.test(botId) || !keyName || !scopeText} onClick={() => mutate('keys/', { bot: Number(botId), name: keyName, scopes: scopeText.split(',').map(value => value.trim()).filter(Boolean) })}>创建单 Bot Key</Button>
+      <Text>Key 权限（仅显示当前有效授权）</Text>
+      {(myGrants.find(grant => String(grant.bot.id) === botId)?.scopes ?? []).map(scope => <Checkbox key={scope} label={`Key 权限 ${scope}`} checked={keyScopes.includes(scope)} onChange={(_, data) => setKeyScopes(current => data.checked ? [...current, scope] : current.filter(value => value !== scope))} />)}
+      <Button disabled={busy || !password || !myGrants.some(grant => String(grant.bot.id) === botId) || !keyName || !keyScopes.length} onClick={() => mutate('keys/', { bot: Number(botId), name: keyName, scopes: keyScopes })}>创建单 Bot Key</Button>
       {issuedToken && <MessageBar intent="warning"><MessageBarBody>仅本次展示，请立即安全保存。<Input aria-label="新建密钥" readOnly type="password" value={issuedToken} /><Button onClick={() => navigator.clipboard.writeText(issuedToken).catch(() => setError('复制失败，请手动选择密钥保存'))}>复制新密钥</Button><Button onClick={() => setIssuedToken('')}>我已保存，清除明文</Button></MessageBarBody></MessageBar>}
       {keys.length ? keys.map(key => <Card key={key.id}><Text>{key.name} · Bot #{key.bot}</Text><Text>{key.prefix}… · {key.revoked_at ? '已撤销' : '未撤销'} · {key.scopes.join('、')}</Text><Button disabled={busy || !password || !!key.revoked_at} onClick={() => mutate(`keys/${key.id}/revoke/`, {})}>撤销 {key.name}</Button></Card>) : <Text>暂无密钥。</Text>}
       </>}

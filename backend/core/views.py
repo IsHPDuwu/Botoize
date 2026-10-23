@@ -118,6 +118,12 @@ class Grants(APIView):
         return Response({'id': grant.pk, 'revision': grant.revision, 'is_active': active})
 
 
+class MyGrants(APIView):
+    def get(self, request):
+        grants = BotGrant.objects.filter(user=request.user, is_active=True, bot__is_active=True).select_related('bot')
+        return Response([{'bot': bot_data(grant.bot), 'scopes': grant.scopes, 'revision': grant.revision} for grant in grants])
+
+
 class Keys(APIView):
     def get(self, request):
         return Response([key_data(k) for k in ApiKey.objects.filter(user=request.user)])

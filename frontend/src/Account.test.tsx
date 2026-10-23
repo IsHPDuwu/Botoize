@@ -10,12 +10,32 @@ afterEach(() => { cleanup(); vi.resetAllMocks(); });
 function session(role: 'Owner' | 'Admin') {
   api.mockImplementation(async path => {
     if (path === 'auth/me/') return { id: 1, username: 'operator', role };
-    if (path === 'bots/' || path === 'keys/' || path === 'grants/') return [];
+    if (path === 'bots/' || path === 'keys/' || path === 'grants/' || path === 'my-grants/') return [];
     return undefined;
   });
 }
 
 describe('management account', () => {
+  it('offers only explicitly granted Bots and scopes for Key creation', async () => {
+    session('Owner');
+    const fallback = api.getMockImplementation()!;
+    api.mockImplementation(async (path, body) => {
+      if (path === 'bots/') return [{ id: 9, name: 'Not granted', app_id: '9', is_active: true }];
+      if (path === 'my-grants/') return [{ bot: { id: 2, name: 'Granted Bot', app_id: '2', is_active: true }, scopes: ['query:read'], revision: 1 }];
+      return fallback(path, body);
+    });
+    render(<Account section="API Key" />);
+    await screen.findByText('operator · Owner');
+    fireEvent.click(screen.getByRole('combobox', { name: '绑定的 Bot' }));
+    fireEvent.click(await screen.findByRole('option', { name: 'Granted Bot' }));
+    expect(screen.queryByRole('option', { name: 'Not granted' })).toBeNull();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Key 权限 query:read' }));
+    expect(screen.queryByRole('checkbox', { name: 'Key 权限 messages:send' })).toBeNull();
+    fireEvent.change(screen.getByLabelText('Key 名称'), { target: { value: 'readonly' } });
+    fireEvent.change(screen.getByLabelText('操作确认密码'), { target: { value: 'confirmation' } });
+    fireEvent.click(screen.getByRole('button', { name: '创建单 Bot Key' }));
+    await waitFor(() => expect(api).toHaveBeenCalledWith('keys/', { bot: 2, name: 'readonly', scopes: ['query:read'], password: 'confirmation' }));
+  });
   it('creates a Bot with password confirmation and clears sensitive inputs', async () => {
     session('Owner');
     render(<Account />);

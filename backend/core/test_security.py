@@ -44,6 +44,23 @@ def test_admin_isolation(setup):
     assert c.post('/api/v1/keys/', {'bot': other.pk, 'name': 'x', 'scopes': [], 'password': PASSWORD}, format='json').status_code == 404
 
 
+def test_my_grants_are_explicit_live_and_private(setup):
+    a, b, o, bot, other = setup
+    assert APIClient().get('/api/v1/my-grants/').status_code == 403
+    data = client(a).get('/api/v1/my-grants/').json()
+    assert len(data) == 1
+    assert data[0]['bot']['id'] == bot.pk
+    assert set(data[0]['scopes']) == {'query:read', 'messages:send'}
+    assert 'encrypted_secret' not in data[0]['bot']
+    assert client(o).get('/api/v1/my-grants/').json() == []
+    BotGrant.objects.filter(user=a).update(is_active=False)
+    assert client(a).get('/api/v1/my-grants/').json() == []
+    BotGrant.objects.filter(user=a).update(is_active=True)
+    bot.is_active = False
+    bot.save()
+    assert client(a).get('/api/v1/my-grants/').json() == []
+
+
 def test_key_single_bot_scopes_and_hash(setup):
     a, b, o, bot, other = setup
     k, token = issue_key(a, bot, 'key', ['query:read'])
