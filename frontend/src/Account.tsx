@@ -4,6 +4,7 @@ import { management, type SessionUser, type BotInfo, type KeyInfo } from './api'
 
 interface Grant { id: number; user_id: number; bot_id: number; scopes: string[]; is_active: boolean; revision: number }
 interface MyGrant { bot: BotInfo; scopes: string[]; revision: number }
+interface UserSummary { id: number; username: string; role: string; is_active: boolean }
 const scopes = ['events:read', 'messages:send', 'media:upload', 'query:read'];
 
 export function Account({ initialUser, section = '全部' }: { initialUser?: SessionUser; section?: string } = {}) {
@@ -25,6 +26,7 @@ export function Account({ initialUser, section = '全部' }: { initialUser?: Ses
   const [grantUser, setGrantUser] = useState('');
   const [grantBot, setGrantBot] = useState('');
   const [grantScopes, setGrantScopes] = useState<string[]>([]);
+  const [users, setUsers] = useState<UserSummary[]>([]);
   async function mutate(path: string, body: Record<string, unknown>) {
     setBusy(true); setError(''); setIssuedToken('');
     try {
@@ -39,7 +41,10 @@ export function Account({ initialUser, section = '全部' }: { initialUser?: Ses
     setBots(botList); setKeys(keyList);
     setMyGrants(ownGrants);
     setKeyScopes(current => current.filter(scope => ownGrants.find(grant => String(grant.bot.id) === botId)?.scopes.includes(scope)));
-    if (user?.role === 'Owner') setGrants(await management<Grant[]>('grants/'));
+    if (user?.role === 'Owner') {
+      const [grantList, userList] = await Promise.all([management<Grant[]>('grants/'), management<UserSummary[]>('users/')]);
+      setGrants(grantList); setUsers(userList);
+    }
   }
   useEffect(() => {
     if (initialUser) { setBusy(false); return; }
@@ -65,7 +70,7 @@ export function Account({ initialUser, section = '全部' }: { initialUser?: Ses
       {user.role === 'Owner' && ['全部', 'Bot 授权'].includes(section) && <Card>
         <Title3 as="h3">Bot 授权管理</Title3>
         <Text>同一 Bot 可授权给多个用户。这里只分配 Bot 权限，不修改用户角色。</Text>
-        <Field label="被授权用户 ID"><Input value={grantUser} onChange={(_, data) => setGrantUser(data.value)} /></Field>
+        <Field label="被授权用户"><Dropdown selectedOptions={grantUser ? [grantUser] : []} value={users.find(value => String(value.id) === grantUser)?.username ?? ''} onOptionSelect={(_, data) => setGrantUser(data.optionValue ?? '')}>{users.filter(value => value.is_active).map(value => <Option key={value.id} value={String(value.id)} text={value.username}>{value.username} · {value.role}</Option>)}</Dropdown></Field>
         <Field label="授权 Bot"><Dropdown selectedOptions={grantBot ? [grantBot] : []} value={bots.find(bot => String(bot.id) === grantBot)?.name ?? ''} onOptionSelect={(_, data) => setGrantBot(data.optionValue ?? '')}>{bots.map(bot => <Option key={bot.id} value={String(bot.id)}>{bot.name}</Option>)}</Dropdown></Field>
         {scopes.map(scope => <Checkbox key={scope} label={scope} checked={grantScopes.includes(scope)} onChange={(_, data) => setGrantScopes(current => data.checked ? [...current, scope] : current.filter(value => value !== scope))} />)}
         <Button disabled={busy || !password || !/^[1-9]\d*$/.test(grantUser) || !grantBot} onClick={() => mutate('grants/', { user: Number(grantUser), bot: Number(grantBot), scopes: grantScopes, is_active: true })}>保存用户 Bot 授权</Button>

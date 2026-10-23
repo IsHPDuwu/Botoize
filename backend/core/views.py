@@ -91,6 +91,12 @@ class Bots(APIView):
         return Response(bot_data(bot), status=201)
 
 
+class Users(APIView):
+    def get(self, request):
+        owner(request)
+        return Response(list(User.objects.order_by('username').values('id', 'username', 'role', 'is_active')))
+
+
 class Grants(APIView):
     def get(self, request):
         owner(request)

@@ -5,6 +5,7 @@ urlpatterns = [
     path('health/', views.Health.as_view()),
     path('api/v1/auth/<str:action>/', views.Auth.as_view()),
     path('api/v1/bots/', views.Bots.as_view()),
+    path('api/v1/users/', views.Users.as_view()),
     path('api/v1/grants/', views.Grants.as_view()),
     path('api/v1/my-grants/', views.MyGrants.as_view()),
     path('api/v1/keys/', views.Keys.as_view()),

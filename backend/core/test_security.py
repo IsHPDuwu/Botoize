@@ -44,6 +44,17 @@ def test_admin_isolation(setup):
     assert c.post('/api/v1/keys/', {'bot': other.pk, 'name': 'x', 'scopes': [], 'password': PASSWORD}, format='json').status_code == 404
 
 
+def test_user_directory_is_owner_only_and_read_only(setup):
+    a, b, o, bot, other = setup
+    assert APIClient().get('/api/v1/users/').status_code == 403
+    assert client(a).get('/api/v1/users/').status_code == 403
+    records = client(o).get('/api/v1/users/').json()
+    assert {record['id'] for record in records} == {a.pk, b.pk, o.pk}
+    assert all(set(record) == {'id', 'username', 'role', 'is_active'} for record in records)
+    assert client(o).post('/api/v1/users/', {'username': 'injected', 'role': 'Owner'}).status_code == 405
+    assert not User.objects.filter(username='injected').exists()
+
+
 def test_my_grants_are_explicit_live_and_private(setup):
     a, b, o, bot, other = setup
     assert APIClient().get('/api/v1/my-grants/').status_code == 403
@@ -165,7 +176,7 @@ def test_secret_and_field_injection(setup):
     payload = {'name': 'key', 'bot': bot.pk, 'scopes': [], 'password': PASSWORD, 'role': 'Owner'}
     assert client(a).post('/api/v1/keys/', payload, format='json').status_code == 400
     assert c.get('/admin/').status_code == 404
-    assert c.post('/api/v1/users/', {'role': 'Owner'}).status_code == 404
+    assert c.post('/api/v1/users/', {'role': 'Owner'}).status_code == 405
 
 
 def test_key_creation_expiry_and_secret_once(setup):

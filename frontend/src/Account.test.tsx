@@ -10,7 +10,7 @@ afterEach(() => { cleanup(); vi.resetAllMocks(); });
 function session(role: 'Owner' | 'Admin') {
   api.mockImplementation(async path => {
     if (path === 'auth/me/') return { id: 1, username: 'operator', role };
-    if (path === 'bots/' || path === 'keys/' || path === 'grants/' || path === 'my-grants/') return [];
+    if (path === 'bots/' || path === 'keys/' || path === 'grants/' || path === 'my-grants/' || path === 'users/') return [];
     return undefined;
   });
 }
