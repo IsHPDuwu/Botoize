@@ -10,7 +10,7 @@ afterEach(() => { cleanup(); vi.resetAllMocks(); });
 function session(role: 'Owner' | 'Admin') {
   api.mockImplementation(async path => {
     if (path === 'auth/me/') return { id: 1, username: 'operator', role };
-    if (path === 'bots/' || path === 'keys/') return [];
+    if (path === 'bots/' || path === 'keys/' || path === 'grants/') return [];
     return undefined;
   });
 }
@@ -37,6 +37,23 @@ describe('management account', () => {
     render(<Account />);
     await screen.findByText('operator · Admin');
     expect(screen.queryByRole('button', { name: '添加 Bot' })).toBeNull();
+    expect(screen.queryByText('Bot 授权管理')).toBeNull();
     expect(screen.getByRole('button', { name: '创建单 Bot Key' })).toBeDisabled();
+  });
+
+  it('disables a grant using its original user, Bot and scopes', async () => {
+    session('Owner');
+    const fallback = api.getMockImplementation()!;
+    api.mockImplementation(async (path, body) => path === 'grants/' && !body
+      ? [{ id: 7, user_id: 3, bot_id: 9, scopes: ['events:read'], is_active: true, revision: 2 }]
+      : fallback(path, body));
+    render(<Account />);
+    const disable = await screen.findByRole('button', { name: '停用用户 #3 的 Bot #9 授权' });
+    expect(disable).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('操作确认密码'), { target: { value: 'confirmation' } });
+    fireEvent.click(disable);
+    await waitFor(() => expect(api).toHaveBeenCalledWith('grants/', {
+      user: 3, bot: 9, scopes: ['events:read'], is_active: false, password: 'confirmation',
+    }));
   });
 });
