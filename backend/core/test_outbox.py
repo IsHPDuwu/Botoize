@@ -62,6 +62,42 @@ def test_claim_cancels_invalid_snapshot():
     assert row.state == 'cancelled'
 
 
+def test_crashes_exhaust_attempt_budget_without_failure_ack():
+    _, row = pending()
+    for attempt in range(2):
+        [(pk, token)] = claim_outbox(max_attempts=2)
+        row.refresh_from_db()
+        assert row.attempts == attempt + 1
+        EventOutbox.objects.filter(pk=pk).update(
+            lease_until=timezone.now() - timedelta(seconds=1),
+        )
+    assert claim_outbox(max_attempts=2) == []
+    row.refresh_from_db()
+    assert row.state == 'failed'
+    assert row.lease_token is None and row.lease_until is None
+    assert not finish_outbox(pk, token, True)
+
+
+def test_scan_does_not_cancel_claimed_work():
+    grant, row = pending()
+    [(pk, token)] = claim_outbox()
+    grant.is_active = False
+    grant.save()
+    assert scan_outbox()['scanned'] == 0
+    row.refresh_from_db()
+    assert row.state == 'processing' and row.lease_token == token
+    assert not validate_lease(pk, token)
+
+
+@pytest.mark.parametrize('kwargs', [
+    {'limit': True}, {'limit': 1.5}, {'lease_seconds': False},
+    {'max_attempts': 0}, {'max_attempts': True}, {'max_attempts': 101},
+])
+def test_invalid_claim_options(kwargs):
+    with pytest.raises(ValueError):
+        claim_outbox(**kwargs)
+
+
 def pending():
     bot = Bot.objects.create(name='bot', app_id='1', encrypted_secret='unused')
     user = User.objects.create_user('reader')

@@ -18,9 +18,13 @@ def valid_snapshot(row):
     )
 
 
-def claim_outbox(limit=100, lease_seconds=60):
+def claim_outbox(limit=100, lease_seconds=60, max_attempts=5):
     """Claim with compare-and-swap; expired leases may be recovered."""
-    if not 1 <= limit <= 1000 or not 1 <= lease_seconds <= 3600:
+    if (
+        type(limit) is not int or not 1 <= limit <= 1000
+        or type(lease_seconds) is not int or not 1 <= lease_seconds <= 3600
+        or type(max_attempts) is not int or not 1 <= max_attempts <= 100
+    ):
         raise ValueError('Invalid claim bounds')
     now = timezone.now()
     eligible = (
@@ -31,7 +35,12 @@ def claim_outbox(limit=100, lease_seconds=60):
     claimed = []
     for pk in ids:
         token = uuid4()
-        updated = EventOutbox.objects.filter(eligible, pk=pk).update(
+        exhausted = EventOutbox.objects.filter(eligible, pk=pk, attempts__gte=max_attempts).update(
+            state='failed', lease_token=None, lease_until=None, available_at=None,
+        )
+        if exhausted:
+            continue
+        updated = EventOutbox.objects.filter(eligible, pk=pk, attempts__lt=max_attempts).update(
             state='processing', lease_token=token,
             lease_until=now + timedelta(seconds=lease_seconds), attempts=F('attempts') + 1,
         )
@@ -57,7 +66,7 @@ def validate_lease(pk, token):
 
 def finish_outbox(pk, token, success, max_attempts=5):
     """Reject stale acknowledgements; retry with capped exponential backoff."""
-    if max_attempts < 1:
+    if type(max_attempts) is not int or not 1 <= max_attempts <= 100:
         raise ValueError('Invalid attempt limit')
     if not validate_lease(pk, token):
         return False
