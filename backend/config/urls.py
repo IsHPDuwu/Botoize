@@ -14,5 +14,6 @@ urlpatterns = [
     path('api/v1/keys/<int:pk>/revoke/', views.RevokeKey.as_view()),
     path('api/v1/owner/keys/<int:pk>/revoke/', views.RevokeKey.as_view(), {'global_revoke': True}),
     path('relay/v1/capabilities/', views.Capabilities.as_view()),
+    path('relay/v1/events/', views.RelayEvents.as_view()),
     re_path(r'^(?:qq|onebot)/(?P<path>.*)$', views.Proxy.as_view()),
 ]

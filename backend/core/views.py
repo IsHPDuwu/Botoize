@@ -10,7 +10,7 @@ from rest_framework.authentication import BaseAuthentication, SessionAuthenticat
 from rest_framework.permissions import AllowAny
 from rest_framework.exceptions import PermissionDenied, ValidationError, AuthenticationFailed
 from rest_framework import serializers
-from .models import User, Bot, BotGrant, ApiKey, AuditLog
+from .models import User, Bot, BotGrant, ApiKey, AuditLog, EventOutbox
 from .services import authorize, encrypt_secret, issue_key, validate_scopes
 from .official import get_self, send_message, MESSAGE_PATH, OfficialCredentialError
 
@@ -186,6 +186,31 @@ class Capabilities(APIView):
         if 'messages:send' in request.effective_scopes:
             operations += ['POST /v2/users/{user_openid}/messages', 'POST /v2/groups/{group_openid}/messages']
         return Response({'bot_id': request.auth.bot_id, 'scopes': request.effective_scopes, 'proxy_enabled': bool(operations), 'websocket_enabled': False, 'operations': operations})
+
+
+class RelayEvents(Capabilities):
+    def get(self, request):
+        if 'events:read' not in request.effective_scopes:
+            raise PermissionDenied('events:read required')
+        cursor = request.query_params.get('after', '0')
+        limit = request.query_params.get('limit', '50')
+        if not cursor.isascii() or not cursor.isdigit() or len(cursor) > 18:
+            raise ValidationError({'after': 'Non-negative integer cursor required'})
+        if not limit.isascii() or not limit.isdigit() or len(limit) > 3 or not 1 <= int(limit) <= 100:
+            raise ValidationError({'limit': 'Expected integer between 1 and 100'})
+        rows = list(EventOutbox.objects.filter(
+            grant__user=request.user, grant__bot_id=request.auth.bot_id,
+            grant__is_active=True, grant_revision=request.auth.grant_revision,
+            event__bot_id=request.auth.bot_id, id__gt=int(cursor),
+        ).select_related('event').order_by('id')[:int(limit) + 1])
+        page = rows[:int(limit)]
+        response = Response({
+            'events': [{'cursor': str(row.pk), 'payload': row.event.payload, 'received_at': row.event.received_at} for row in page],
+            'next_cursor': str(page[-1].pk) if page else cursor,
+            'has_more': len(rows) > int(limit),
+        })
+        response['Cache-Control'] = 'no-store'
+        return response
 
 
 class Proxy(Capabilities):
