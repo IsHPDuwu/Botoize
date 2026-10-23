@@ -53,3 +53,24 @@ def access_token(bot):
     if ttl > 60:
         cache.set(cache_key, cipher.encrypt(token.encode()), timeout=ttl - 60)
     return token
+
+
+def get_self(bot, query=''):
+    """Only the documented /users/@me operation; URL is not caller-controlled."""
+    url = 'https://api.bot.qq.com/users/@me'
+    if query:
+        url += '?' + query
+    request = Request(url, headers={'Authorization': 'QQBot ' + access_token(bot)}, method='GET')
+    try:
+        try:
+            response = build_opener(NoRedirect()).open(request, timeout=10)
+        except HTTPError as error:
+            response = error
+        with response as response:
+            raw = response.read(MAX_RESPONSE_BYTES + 1)
+            if len(raw) > MAX_RESPONSE_BYTES or 300 <= response.code < 400:
+                raise OfficialCredentialError('Official response rejected')
+            headers = {name: response.headers[name] for name in ['Content-Type', 'X-Tps-trace-ID', 'Retry-After'] if name in response.headers}
+            return response.code, raw, headers
+    except (URLError, OSError, ValueError):
+        raise OfficialCredentialError('Official query unavailable') from None

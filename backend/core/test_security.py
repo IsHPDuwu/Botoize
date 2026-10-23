@@ -72,6 +72,28 @@ def test_my_grants_are_explicit_live_and_private(setup):
     assert client(a).get('/api/v1/my-grants/').json() == []
 
 
+def test_official_query_preserves_response_and_checks_scope(setup):
+    a, b, o, bot, other = setup
+    key, token = issue_key(a, bot, 'query', ['query:read'])
+    c = APIClient()
+    c.credentials(HTTP_AUTHORIZATION='Bearer ' + token)
+    with patch('core.views.get_self', return_value=(429, b'{"err_code":123}', {'Content-Type': 'application/json', 'X-Tps-trace-ID': 'trace', 'Retry-After': '3'})) as upstream:
+        response = c.get('/qq/users/@me?test=1&test=2')
+        assert response.status_code == 429
+        assert response.content == b'{"err_code":123}'
+        assert response['X-Tps-trace-ID'] == 'trace'
+        assert response['Retry-After'] == '3'
+        assert response['Cache-Control'] == 'no-store'
+        upstream.assert_called_once()
+        assert upstream.call_args.args[1] == 'test=1&test=2'
+    key, token = issue_key(a, bot, 'send', ['messages:send'])
+    c.credentials(HTTP_AUTHORIZATION='Bearer ' + token)
+    with patch('core.views.get_self') as upstream:
+        assert c.get('/qq/users/@me').status_code == 403
+        assert c.get('/onebot/users/@me').status_code == 501
+        upstream.assert_not_called()
+
+
 def test_key_single_bot_scopes_and_hash(setup):
     a, b, o, bot, other = setup
     k, token = issue_key(a, bot, 'key', ['query:read'])

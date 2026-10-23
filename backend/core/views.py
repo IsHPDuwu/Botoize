@@ -1,5 +1,6 @@
 from django.contrib.auth import authenticate, login, logout
 from django.middleware.csrf import get_token
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from django.db import transaction
 from django.utils import timezone
@@ -11,6 +12,7 @@ from rest_framework.exceptions import PermissionDenied, ValidationError, Authent
 from rest_framework import serializers
 from .models import User, Bot, BotGrant, ApiKey, AuditLog
 from .services import authorize, encrypt_secret, issue_key, validate_scopes
+from .official import get_self, OfficialCredentialError
 
 
 def fields(data, allowed, required=()):
@@ -180,13 +182,29 @@ class Capabilities(APIView):
     authentication_classes = [Bearer]
 
     def get(self, request):
-        return Response({'bot_id': request.auth.bot_id, 'scopes': request.effective_scopes, 'proxy_enabled': False, 'websocket_enabled': False, 'operations': []})
+        operations = ['GET /users/@me'] if 'query:read' in request.effective_scopes else []
+        return Response({'bot_id': request.auth.bot_id, 'scopes': request.effective_scopes, 'proxy_enabled': bool(operations), 'websocket_enabled': False, 'operations': operations})
 
 
 class Proxy(Capabilities):
+    def get(self, request, path=''):
+        if request.path.startswith('/qq/') and path == 'users/@me':
+            if 'query:read' not in request.effective_scopes:
+                raise PermissionDenied('query:read required')
+            try:
+                status, raw, headers = get_self(request.auth.bot, request.META.get('QUERY_STRING', ''))
+            except OfficialCredentialError:
+                return Response({'code': 'official_unavailable', 'source': 'platform', 'detail': 'Official query failed'}, status=502)
+            response = HttpResponse(raw, status=status)
+            for name, value in headers.items():
+                response[name] = value
+            response['Cache-Control'] = 'no-store'
+            return response
+        return self.denied(request, path)
+
     def denied(self, request, path=''):
         if isinstance(request.data, dict) and 'bot_id' in request.data and str(request.data['bot_id']) != str(request.auth.bot_id):
             raise PermissionDenied('Bot mismatch')
         return Response({'code': 'proxy_not_available', 'source': 'platform', 'detail': 'Official proxy and OneBot are not implemented'}, status=501)
 
-    get = post = put = patch = delete = denied
+    post = put = patch = delete = denied
