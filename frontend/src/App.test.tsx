@@ -1,15 +1,18 @@
 import { render, screen, fireEvent } from '@testing-library/react';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { management } from './api';
+vi.mock('./api', () => ({ checkBackend: vi.fn().mockResolvedValue(undefined), management: vi.fn() }));
+beforeEach(() => { vi.mocked(management).mockImplementation(async path => path === 'auth/me/' ? { id: 1, username: 'test', role: 'Admin' } : []); });
 import { App } from './App';
 import { demoDashboard, isDemoEnabled, successRate, windows } from './dashboard';
 
 describe('dashboard', () => {
-  it('only enables demo explicitly', () => {
+  it('only enables demo explicitly', async () => {
     for (const value of [undefined, '', 'false', '1', 'TRUE', true]) expect(isDemoEnabled(value)).toBe(false);
     expect(isDemoEnabled('true')).toBe(true);
     render(<App demo={false} />);
     expect(screen.queryByRole('grid')).not.toBeInTheDocument();
-    expect(screen.getByText(/真实统计 API 尚未接入/)).toBeInTheDocument();
+    expect(await screen.findByText(/真实统计 API 尚未接入/)).toBeInTheDocument();
   });
   it('handles zero denominator and each window', () => {
     expect(successRate(0, 0)).toBe('无数据');
@@ -58,7 +61,7 @@ describe('dashboard', () => {
   it('cancels pending demo load when switching to real mode', async () => {
     const { rerender } = render(<App demo />);
     rerender(<App demo={false} />);
-    expect(screen.getByText(/真实统计 API 尚未接入/)).toBeInTheDocument();
+    expect(await screen.findByText(/真实统计 API 尚未接入/)).toBeInTheDocument();
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
     expect(screen.queryByRole('grid')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '刷新' })).toBeDisabled();
@@ -68,7 +71,7 @@ describe('dashboard', () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
     render(<App demo={false} />);
-    fireEvent.click(screen.getByRole('button', { name: '复制平台地址' }));
+    fireEvent.click(await screen.findByRole('button', { name: '复制平台地址' }));
     expect(await screen.findByText('平台地址已复制')).toBeInTheDocument();
     expect(writeText).toHaveBeenCalledWith('https://relay.example.test');
     writeText.mockRejectedValue(new Error('denied'));
@@ -76,12 +79,20 @@ describe('dashboard', () => {
     expect(await screen.findByText('复制失败，请手动复制平台地址')).toBeInTheDocument();
     vi.unstubAllEnvs();
   });
-  it('keeps real mode structure and shows the configured dev backend', () => {
+  it('keeps real mode structure and shows the configured dev backend', async () => {
     render(<App demo={false} />);
-    expect(screen.getByRole('region', { name: '统计指标空态' })).toBeInTheDocument();
+    expect(await screen.findByRole('region', { name: '统计指标空态' })).toBeInTheDocument();
     expect(screen.getByText('事件与调用趋势')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '复制平台地址' })).not.toBeDisabled();
     expect(screen.getByText(/http:\/\/localhost:8000/)).toBeInTheDocument();
+  });
+  it('shows a standalone login page without workspace content when unauthenticated', async () => {
+    vi.mocked(management).mockRejectedValue(new Error('Not authenticated'));
+    render(<App demo={false} />);
+    expect(await screen.findByRole('heading', { name: '登录 Bot Proxy' })).toBeInTheDocument();
+    expect(screen.queryByRole('navigation')).toBeNull();
+    expect(screen.queryByText('中转概览')).toBeNull();
+    expect(screen.queryByText('真实管理会话')).toBeNull();
   });
   it('switches synthetic role scope without claiming authorization', async () => {
     render(<App demo />);

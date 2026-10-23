@@ -10,8 +10,9 @@ import {
 } from '@fluentui/react-components';
 import { CopyRegular, ArrowClockwiseRegular, BotRegular } from '@fluentui/react-icons';
 import { demoDashboard, isDemoEnabled, windows, type Window } from './dashboard';
-import { checkBackend } from './api';
+import { checkBackend, management, type SessionUser } from './api';
 import { Account } from './Account';
+import { Login } from './Login';
 
 const pages = ['总览', '我的 Bot', 'API Key', '订阅端点', '事件与投递', '接入指南'];
 const useDocumentLayout = makeStaticStyles({
@@ -37,6 +38,21 @@ const columns = [
 ];
 
 export function App({ demo = isDemoEnabled(import.meta.env.VITE_DEMO_MODE) || (import.meta.env.DEV && new URLSearchParams(location.search).get('demo') === 'true') }: { demo?: boolean }) {
+  useDocumentLayout();
+  const [session, setSession] = useState<SessionUser | null>(null);
+  const [checking, setChecking] = useState(!demo);
+  useEffect(() => {
+    if (demo) { setChecking(false); return; }
+    let active = true;
+    management<SessionUser>('auth/me/').then(user => { if (active) setSession(user); }).catch(() => {}).finally(() => { if (active) setChecking(false); });
+    return () => { active = false; };
+  }, [demo]);
+  if (!demo && checking) return <FluentProvider theme={webDarkTheme}><Spinner label="正在检查登录状态" /></FluentProvider>;
+  if (!demo && !session) return <FluentProvider theme={webDarkTheme}><Login onLogin={setSession} /></FluentProvider>;
+  return <Workspace demo={demo} onLogout={() => setSession(null)} />;
+}
+
+function Workspace({ demo, onLogout }: { demo: boolean; onLogout: () => void }) {
   useDocumentLayout();
   const styles = useStyles();
   const backend = import.meta.env.VITE_BACKEND_URL?.trim() || (import.meta.env.DEV ? 'http://localhost:8000' : '');
@@ -111,7 +127,7 @@ export function App({ demo = isDemoEnabled(import.meta.env.VITE_DEMO_MODE) || (i
       </Toolbar>
     </header>
     <div><Divider /></div>
-    {!demo && <Account />}
+    {!demo && <Account onLogout={onLogout} />}
       {demo && <Text size={200}>演示工作区 · 当前数据均为模拟，不代表真实服务状态。</Text>}
       {page === '总览' ? <>
         <Text>机器人连接、事件流量与投递健康一览</Text>

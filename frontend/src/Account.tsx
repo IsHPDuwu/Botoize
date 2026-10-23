@@ -5,7 +5,7 @@ import { management, type SessionUser, type BotInfo, type KeyInfo } from './api'
 interface Grant { id: number; user_id: number; bot_id: number; scopes: string[]; is_active: boolean; revision: number }
 const scopes = ['events:read', 'messages:send', 'media:upload', 'query:read'];
 
-export function Account() {
+export function Account({ onLogout }: { onLogout?: () => void } = {}) {
   const [user, setUser] = useState<SessionUser | null>(null);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -52,7 +52,7 @@ export function Account() {
   }
   async function signOut() {
     setBusy(true); setError('');
-    try { await management('auth/logout/', {}); setUser(null); setBots([]); setKeys([]); setGrants([]); setIssuedToken(''); setPassword(''); setSecret(''); }
+    try { await management('auth/logout/', {}); setUser(null); setBots([]); setKeys([]); setGrants([]); setIssuedToken(''); setPassword(''); setSecret(''); onLogout?.(); }
     catch { setError('退出失败，请重试'); }
     finally { setBusy(false); }
   }
