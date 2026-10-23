@@ -9,17 +9,32 @@ Python 3.13 已验证。后端统一使用 uv：从 backend 工作目录运行
 新增/更新依赖使用 `uv add` / `uv lock`，同时提交声明与锁文件。
 联网如需代理，可在当前终端为 HTTP_PROXY、HTTPS_PROXY 设置
 `http://127.0.0.1:7890`；Python 包使用官方 PyPI，不使用 npm 镜像。
-使用 `uv run --locked python manage.py migrate`，再用
+首次本地开发先运行 `uv run --locked python scripts/init_dev.py`：独立随机生成
+两项密钥并仅写入被 Git 忽略的 `backend/.env`，不显示密钥，不覆盖已有文件。
+然后使用 `uv run --locked python manage.py migrate`，再用
 `uv run --locked python manage.py owner init USERNAME` 初始化 Owner；密码通过
 终端隐藏输入（至少 12 字符），不放命令行参数。启动 ASGI 入口为
 `config.asgi:application`，开发可用 `uv run --locked python manage.py runserver`。
 
-环境变量由启动器导入，**不会自动读取 .env**。必须设置随机
+配置自动读取固定路径 `backend/.env`，已导出的环境变量优先（包括空值）。
+如果初始化提示文件已存在，在本机编辑器检查配置，不要将内容粘贴到日志或聊天。
+`.env.example` 是空密钥模板，不能直接复制后启动；初始化脚本是推荐开发入口。
+必须设置随机
 DJANGO_SECRET_KEY 和 BOT_ENCRYPTION_KEY（cryptography Fernet.generate_key() 的结果）。
 两者独立保存，不能使用 config/test_settings.py 的测试密钥。丢失 Fernet 密钥无法解密
 已有凭据；当前不提供自动密钥轮换。显式 DJANGO_DEBUG=1 才允许开发 SQLite。
 生产默认关闭 DEBUG、强制 PostgreSQL/HTTPS、安全 Cookie/HSTS，不默认信任转发头。
-生产数据库参数见 .env.example；部署仍须配置 TLS、入口限流、备份和日志策略。
+生产不得部署开发 `.env`，也不得运行开发初始化脚本；由部署环境注入独立密钥，
+显式设置 `DJANGO_DEBUG=0` 和 `DB_ENGINE=postgres`，以及 DB_NAME、DB_USER、
+DB_PASSWORD、DB_HOST、DB_PORT、DB_SSLMODE=require。
+缺失密钥仍拒绝启动，不会生成或回退到默认生产密钥。
+部署仍须配置 TLS、入口限流、备份和日志策略。
+
+如果提示根 `.venv` 与项目环境不一致，先在当前 PowerShell 运行 `deactivate`，
+再切换到 backend。若没有 deactivate 函数但仍残留 VIRTUAL_ENV，可运行
+`Remove-Item Env:VIRTUAL_ENV -ErrorAction SilentlyContinue`；uv 不需要手动激活环境，
+不要用 `--active`，不要删除任一已有虚拟环境。VS Code 解释器应选择
+`backend/.venv/Scripts/python.exe`。前端继续独立使用 pnpm。
 
 `owner list` 列出 Owner；`owner grant USERNAME` 提升现有有效用户；
 `owner revoke USERNAME` 降为 Admin，事务内拒绝撤销最后有效 Owner。
