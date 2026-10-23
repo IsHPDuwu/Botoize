@@ -1,6 +1,6 @@
 export interface SessionUser { id: number; username: string; role: 'Owner' | 'Admin' }
 export interface BotInfo { id: number; name: string; app_id: string; is_active: boolean }
-export interface KeyInfo { id: number; bot: number; name: string; prefix: string; scopes: string[]; revoked_at: string | null }
+export interface KeyInfo { id: number; bot: number; name: string; prefix: string; scopes: string[]; revoked_at: string | null; expires_at: string | null; grant_revision: number }
 let csrfToken = '';
 export async function management<T>(path: string, body?: unknown): Promise<T> {
   if (body !== undefined && !csrfToken) {

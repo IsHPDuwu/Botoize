@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Button, Card, Field, Input, MessageBar, MessageBarBody, Text, Title3, Spinner, Dropdown, Option, Checkbox } from '@fluentui/react-components';
 import { management, type SessionUser, type BotInfo, type KeyInfo } from './api';
+import { keyStatus } from './keyStatus';
 
 interface Grant { id: number; user_id: number; bot_id: number; scopes: string[]; is_active: boolean; revision: number }
 interface MyGrant { bot: BotInfo; scopes: string[]; revision: number }
@@ -19,6 +20,7 @@ export function Account({ initialUser, section = '全部' }: { initialUser?: Ses
   const [secret, setSecret] = useState('');
   const [botId, setBotId] = useState('');
   const [keyName, setKeyName] = useState('');
+  const [lifetime, setLifetime] = useState('7');
   const [keyScopes, setKeyScopes] = useState<string[]>([]);
   const [myGrants, setMyGrants] = useState<MyGrant[]>([]);
   const [issuedToken, setIssuedToken] = useState('');
@@ -91,11 +93,12 @@ export function Account({ initialUser, section = '全部' }: { initialUser?: Ses
       <Field label="绑定的 Bot"><Dropdown selectedOptions={botId ? [botId] : []} value={myGrants.find(grant => String(grant.bot.id) === botId)?.bot.name ?? ''} onOptionSelect={(_, data) => { setBotId(data.optionValue ?? ''); setKeyScopes([]); }}>{myGrants.map(grant => <Option key={grant.bot.id} value={String(grant.bot.id)}>{grant.bot.name}</Option>)}</Dropdown></Field>
       {!myGrants.length && <Text>暂无可用于创建 Key 的有效 Bot 授权。Owner 也需要显式授权。</Text>}
       <Field label="Key 名称"><Input value={keyName} onChange={(_, data) => setKeyName(data.value)} /></Field>
+      <Field label="Key 有效期"><Dropdown selectedOptions={[lifetime]} value={lifetime === '0' ? '不过期' : `${lifetime} 天`} onOptionSelect={(_, data) => setLifetime(data.optionValue ?? '7')}>{['1', '7', '30', '90'].map(days => <Option key={days} value={days}>{`${days} 天`}</Option>)}<Option value="0">不过期</Option></Dropdown></Field>
       <Text>Key 权限（仅显示当前有效授权）</Text>
       {(myGrants.find(grant => String(grant.bot.id) === botId)?.scopes ?? []).map(scope => <Checkbox key={scope} label={`Key 权限 ${scope}`} checked={keyScopes.includes(scope)} onChange={(_, data) => setKeyScopes(current => data.checked ? [...current, scope] : current.filter(value => value !== scope))} />)}
-      <Button disabled={busy || !password || !myGrants.some(grant => String(grant.bot.id) === botId) || !keyName || !keyScopes.length} onClick={() => mutate('keys/', { bot: Number(botId), name: keyName, scopes: keyScopes })}>创建单 Bot Key</Button>
+      <Button disabled={busy || !password || !myGrants.some(grant => String(grant.bot.id) === botId) || !keyName || !keyScopes.length} onClick={() => mutate('keys/', { bot: Number(botId), name: keyName, scopes: keyScopes, expires_at: lifetime === '0' ? null : new Date(Date.now() + Number(lifetime) * 86400000).toISOString() })}>创建单 Bot Key</Button>
       {issuedToken && <MessageBar intent="warning"><MessageBarBody>仅本次展示，请立即安全保存。<Input aria-label="新建密钥" readOnly type="password" value={issuedToken} /><Button onClick={() => navigator.clipboard.writeText(issuedToken).catch(() => setError('复制失败，请手动选择密钥保存'))}>复制新密钥</Button><Button onClick={() => setIssuedToken('')}>我已保存，清除明文</Button></MessageBarBody></MessageBar>}
-      {keys.length ? keys.map(key => <Card key={key.id}><Text>{key.name} · Bot #{key.bot}</Text><Text>{key.prefix}… · {key.revoked_at ? '已撤销' : '未撤销'} · {key.scopes.join('、')}</Text><Button disabled={busy || !password || !!key.revoked_at} onClick={() => mutate(`keys/${key.id}/revoke/`, {})}>撤销 {key.name}</Button></Card>) : <Text>暂无密钥。</Text>}
+      {keys.length ? keys.map(key => <Card key={key.id}><Text>{key.name} · Bot #{key.bot}</Text><Text>{key.prefix}… · {keyStatus(key, myGrants.find(grant => grant.bot.id === key.bot))} · {key.scopes.join('、')}</Text><Text>到期时间：{key.expires_at ? new Date(key.expires_at).toLocaleString() : '不过期'}</Text><Button disabled={busy || !password || !!key.revoked_at} onClick={() => mutate(`keys/${key.id}/revoke/`, {})}>撤销 {key.name}</Button></Card>) : <Text>暂无密钥。</Text>}
       </>}
     </> : !busy && <Text>会话不可用，请刷新页面重新登录。</Text>}
   </Card>;

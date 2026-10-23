@@ -33,7 +33,7 @@ def bot_data(bot):
 
 
 def key_data(key):
-    return {'id': key.pk, 'bot': key.bot_id, 'name': key.name, 'prefix': key.prefix, 'scopes': key.scopes, 'expires_at': key.expires_at, 'revoked_at': key.revoked_at}
+    return {'id': key.pk, 'bot': key.bot_id, 'name': key.name, 'prefix': key.prefix, 'scopes': key.scopes, 'expires_at': key.expires_at, 'revoked_at': key.revoked_at, 'grant_revision': key.grant_revision}
 
 
 class Health(APIView):

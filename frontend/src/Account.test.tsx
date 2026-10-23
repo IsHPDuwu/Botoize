@@ -34,7 +34,7 @@ describe('management account', () => {
     fireEvent.change(screen.getByLabelText('Key 名称'), { target: { value: 'readonly' } });
     fireEvent.change(screen.getByLabelText('操作确认密码'), { target: { value: 'confirmation' } });
     fireEvent.click(screen.getByRole('button', { name: '创建单 Bot Key' }));
-    await waitFor(() => expect(api).toHaveBeenCalledWith('keys/', { bot: 2, name: 'readonly', scopes: ['query:read'], password: 'confirmation' }));
+    await waitFor(() => expect(api).toHaveBeenCalledWith('keys/', { bot: 2, name: 'readonly', scopes: ['query:read'], password: 'confirmation', expires_at: expect.any(String) }));
   });
   it('creates a Bot with password confirmation and clears sensitive inputs', async () => {
     session('Owner');
