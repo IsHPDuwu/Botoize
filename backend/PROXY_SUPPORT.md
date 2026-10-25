@@ -9,6 +9,11 @@
 | `POST /qq/v2/groups/{group_openid}/messages` | `messages:send` |
 | `DELETE /qq/v2/users/{user_openid}/messages/{message_id}` | `messages:delete` |
 | `DELETE /qq/v2/groups/{group_openid}/messages/{message_id}` | `messages:delete` |
+| `POST /qq/channels/{channel_id}/messages` | `messages:send`，JSON |
+| `POST /qq/users/@me/dms` | `messages:send`，创建频道私信会话 |
+| `POST /qq/dms/{guild_id}/messages` | `messages:send`，JSON |
+| `DELETE /qq/channels/{channel_id}/messages/{message_id}` | `messages:delete` |
+| `DELETE /qq/dms/{guild_id}/messages/{message_id}` | `messages:delete` |
 | `POST /qq/v2/users/{user_openid}/files` | `media:upload`；srv_send_msg=true 另需 messages:send |
 | `POST /qq/v2/groups/{group_openid}/files` | `media:upload`；srv_send_msg=true 另需 messages:send |
 | `POST /qq/v2/users/{user_openid}/upload_prepare` | `media:upload` |
@@ -32,6 +37,10 @@ upload_prepare 的返回 URL 有时效，幂等重放不刷新签名；客户端
 权限仍受当前账号、Bot、显式 BotGrant、授权版本及 Key 范围限制。Owner 身份不自动扩大数据面权限。
 
 撤回采用独立 `messages:delete`，现有发送 Key 不会自动获得撤回权。请求不得携带正文，保留官方状态、空正文和错误；不自动重试。官方文档规定超过两分钟不可撤回，由官方判断；群管理员 Bot 可能撤回普通群成员消息，因此该权限是整个 Bot 范围的敏感权限，不限于该 Admin 自己通过代理发送的消息。
+
+频道接口目前支持 JSON，不支持 multipart/form-data；频道 ID、私信 guild_id 与 QQ 群 OpenID 不作等价转换。
+频道发送的官方在线要求、回复时效、消息审核均由 QQ 校验，本代理实现不表示 Bot 已连接 Gateway。
+频道/私信撤回透传 hidetip 查询；官方文档限制私域机器人可用，不绕过官方权限，也不将单聊/群聊的两分钟规则强加给频道接口。
 
 ## 可选发送幂等扩展
 
@@ -68,12 +77,16 @@ upload_prepare 的返回 URL 有时效，幂等重放不刷新签名；客户端
 不能盲目重发。1400 表示参数错误，1403 为缺权限，1404 为动作不支持，1500 为官方非 2xx。
 官方接受响应也不保证业务消息最终送达。
 
-目前未实现：频道消息、官方 Gateway 上游 WS、OneBot 事件转换/WS、
+目前未实现：频道 multipart 图片直传、官方 Gateway 上游 WS、OneBot 事件转换/WS、
 异步审核跟踪。数据面调用已持久化 request_id、路由模板、状态和耗时，应用已提供按 Key/Admin/Bot 共享的数据库限流；
 下游回调另提供 HMAC 签名、投递历史和受权人工重放。当前官方请求测试使用模拟上游，
 未完成真实官方账号联调；不可据此视为可生产部署。
 
 核对来源：
+- 频道接口核实日期：2026-10-25。
+- https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/message/send.html
+- https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/message/recall.html
+- https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/message/dms.html
 - 撤回接口核实日期：2026-10-25。
 - https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_users_user_openid_messages_message_id.delete.html
 - https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_group_openid_messages_message_id.delete.html

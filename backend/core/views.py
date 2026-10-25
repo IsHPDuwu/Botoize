@@ -468,8 +468,10 @@ class Capabilities(APIView):
         operations = ['GET /users/@me'] if 'query:read' in request.effective_scopes else []
         if 'messages:send' in request.effective_scopes:
             operations += ['POST /v2/users/{user_openid}/messages', 'POST /v2/groups/{group_openid}/messages']
+            operations += ['POST /channels/{channel_id}/messages', 'POST /dms/{guild_id}/messages', 'POST /users/@me/dms']
         if 'messages:delete' in request.effective_scopes:
             operations += ['DELETE /v2/users/{user_openid}/messages/{message_id}', 'DELETE /v2/groups/{group_openid}/messages/{message_id}']
+            operations += ['DELETE /channels/{channel_id}/messages/{message_id}', 'DELETE /dms/{guild_id}/messages/{message_id}']
         if 'media:upload' in request.effective_scopes:
             operations += [
                 f'POST /v2/{kind}/{{{identifier}}}/{operation}'

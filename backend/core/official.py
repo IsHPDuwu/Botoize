@@ -61,9 +61,9 @@ def get_self(bot, query=''):
     return _request(bot, 'GET', 'users/@me', query)
 
 
-MESSAGE_PATH = re.compile(r'v2/(?:users|groups)/[A-Za-z0-9_-]{1,128}/messages')
+MESSAGE_PATH = re.compile(r'(?:v2/(?:users|groups)/[A-Za-z0-9_-]{1,128}/messages|(?:channels|dms)/[A-Za-z0-9_-]{1,128}/messages|users/@me/dms)')
 MEDIA_PATH = re.compile(r'v2/(?:users|groups)/[A-Za-z0-9_-]{1,128}/(?:files|upload_prepare|upload_part_finish)')
-DELETE_MESSAGE_PATH = re.compile(r'v2/(?:users|groups)/[A-Za-z0-9_-]{1,128}/messages/[A-Za-z0-9_-]{1,256}')
+DELETE_MESSAGE_PATH = re.compile(r'(?:v2/(?:users|groups)|channels|dms)/[A-Za-z0-9_-]{1,128}/messages/[A-Za-z0-9_-]{1,256}')
 
 
 def delete_message(bot, path, query=''):
