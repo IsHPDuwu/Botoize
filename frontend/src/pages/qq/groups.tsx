@@ -11,7 +11,7 @@ import { StatusBadge } from "@/components/ui/status";
 import { management } from "@/lib/qq-api";
 import { useQQBots, useQQGrants, useQQUsers } from "@/lib/qq-swr";
 
-const scopeOptions = ["events:read", "messages:send", "media:upload", "query:read"];
+const scopeOptions = ["events:read", "messages:send", "messages:delete", "media:upload", "query:read"];
 
 export function GroupsPage() {
   const bots = useQQBots();

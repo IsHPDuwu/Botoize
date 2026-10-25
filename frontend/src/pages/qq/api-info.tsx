@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/ui/page-header";
 const scopes = [
   ["events:read", "读取已授权 Bot 的事件并使用原生事件流。"],
   ["messages:send", "执行当前已登记的消息发送操作。"],
+  ["messages:delete", "撤回消息的独立敏感权限；群管理员 Bot 可能撤回普通群成员消息。"],
   ["query:read", "执行当前已登记的官方查询操作。"],
   ["media:upload", "仅对已实现的媒体动作生效；scope 不代表所有媒体接口均可用。"],
 ];
