@@ -66,6 +66,24 @@ def issue_key(user, bot, name, scopes, expires_at=None):
 
 
 @transaction.atomic
+def rotate_key(user, key_id, name=None, scopes=None, expires_at=None):
+    old_key = ApiKey.objects.select_for_update().select_related('bot').filter(
+        pk=key_id, user=user, revoked_at__isnull=True,
+    ).first()
+    if old_key is None:
+        raise ApiKey.DoesNotExist
+    if name is None:
+        name = old_key.name
+    if scopes is None:
+        scopes = old_key.scopes
+    new_key, token = issue_key(user, old_key.bot, name, scopes, expires_at)
+    old_key.revoked_at = timezone.now()
+    old_key.save(update_fields=['revoked_at'])
+    AuditLog.objects.create(actor=user.username, action='key.rotate', target=str(old_key.pk))
+    return new_key, token, old_key
+
+
+@transaction.atomic
 def update_bot(bot_id, actor, *, name=None, app_id=None, secret=None, is_active=None):
     if actor.role != User.Role.OWNER or not actor.is_active:
         raise PermissionDenied('Owner required')

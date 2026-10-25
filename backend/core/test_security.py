@@ -253,6 +253,38 @@ def test_key_creation_expiry_and_secret_once(setup):
     assert c.post('/api/v1/keys/', payload, format='json').status_code == 400
 
 
+def test_key_rotation_revokes_old_secret_and_preserves_single_bot_binding(setup):
+    a, b, o, bot, other = setup
+    old_key, old_token = issue_key(a, bot, 'old', ['query:read', 'messages:send'])
+    client_a = client(a)
+    response = client_a.post(f'/api/v1/keys/{old_key.pk}/rotate/', {
+        'name': 'rotated', 'scopes': ['query:read'], 'password': PASSWORD,
+    }, format='json')
+    assert response.status_code == 201
+    data = response.json()
+    new_token = data['token']
+    assert data['rotated_key'] == old_key.pk
+    assert data['bot'] == bot.pk and data['scopes'] == ['query:read']
+    assert new_token not in str(client_a.get('/api/v1/keys/').json())
+    with pytest.raises(AuthenticationFailed):
+        authorize(old_token)
+    assert authorize(new_token, bot.pk, 'query:read')[0].pk == data['id']
+    assert ApiKey.objects.get(pk=old_key.pk).revoked_at is not None
+    assert AuditLog.objects.filter(action='key.rotate', target=str(old_key.pk)).exists()
+
+
+def test_key_rotation_isolated_and_cannot_expand_grant(setup):
+    a, b, o, bot, other = setup
+    key, _ = issue_key(a, bot, 'key', ['query:read'])
+    assert client(b).post(f'/api/v1/keys/{key.pk}/rotate/', {'password': PASSWORD}, format='json').status_code == 404
+    assert client(o).post(f'/api/v1/keys/{key.pk}/rotate/', {'password': PASSWORD}, format='json').status_code == 404
+    response = client(a).post(f'/api/v1/keys/{key.pk}/rotate/', {
+        'bot': other.pk, 'scopes': ['messages:send'], 'password': PASSWORD,
+    }, format='json')
+    assert response.status_code == 400
+    assert ApiKey.objects.filter(user=a, bot=bot, revoked_at__isnull=True).count() == 1
+
+
 def test_bearer_not_session_and_health(setup):
     a, *_ = setup
     c = client(a)

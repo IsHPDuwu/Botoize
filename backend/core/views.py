@@ -15,7 +15,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.exceptions import PermissionDenied, ValidationError, AuthenticationFailed
 from rest_framework import serializers
 from .models import User, Bot, BotGrant, ApiKey, ApiCallAudit, AuditLog, Event, EventOutbox, Invitation
-from .services import authorize, encrypt_secret, issue_key, update_bot, validate_scopes
+from .services import authorize, encrypt_secret, issue_key, rotate_key, update_bot, validate_scopes
 from .official import get_self, send_message, MESSAGE_PATH, OfficialCredentialError
 from .models import HttpSubscription
 from .subscriptions import disable_subscription, set_subscription, subscription_is_current
@@ -321,6 +321,29 @@ class RevokeKey(APIView):
         key.save(update_fields=['revoked_at'])
         AuditLog.objects.create(actor=request.user.username, action='key.revoke', target=str(pk))
         return Response(status=204)
+
+
+class RotateKey(APIView):
+    def post(self, request, pk):
+        fields(request.data, ['name', 'scopes', 'expires_at', 'password'], ['password'])
+        reauthenticate(request)
+        values = {}
+        if 'name' in request.data:
+            values['name'] = serializers.CharField(max_length=120).run_validation(request.data['name'])
+        if 'scopes' in request.data:
+            values['scopes'] = validate_scopes(request.data['scopes'])
+        if 'expires_at' in request.data:
+            expiry = serializers.DateTimeField(allow_null=True).run_validation(request.data['expires_at'])
+            if isinstance(expiry, datetime) and expiry <= timezone.now():
+                raise ValidationError({'expires_at': 'Must be in the future'})
+            values['expires_at'] = expiry
+        try:
+            key, token, old_key = rotate_key(request.user, pk, **values)
+        except ApiKey.DoesNotExist:
+            return Response({'detail': 'Not found'}, status=404)
+        except PermissionDenied:
+            raise
+        return Response({**key_data(key), 'token': token, 'rotated_key': old_key.pk}, status=201)
 
 
 class Bearer(BaseAuthentication):

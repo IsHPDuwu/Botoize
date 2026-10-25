@@ -20,6 +20,7 @@ urlpatterns = [
     path('api/v1/subscriptions/', views.Subscriptions.as_view()),
     path('api/v1/keys/', views.Keys.as_view()),
     path('api/v1/keys/<int:pk>/revoke/', views.RevokeKey.as_view()),
+    path('api/v1/keys/<int:pk>/rotate/', views.RotateKey.as_view()),
     path('api/v1/owner/keys/<int:pk>/revoke/', views.RevokeKey.as_view(), {'global_revoke': True}),
     path('relay/v1/capabilities/', views.Capabilities.as_view()),
     path('relay/v1/events/', views.RelayEvents.as_view()),
