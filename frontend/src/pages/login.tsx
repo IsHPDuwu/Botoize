@@ -2,7 +2,7 @@ import { useCallback, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Languages, Sun, Moon } from "lucide-react";
-import { MonoizeLogo } from "@/components/MonoizeLogo";
+import { BotoizeLogo } from "@/components/BotoizeLogo";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -73,7 +73,7 @@ export function LoginPage() {
     mutate: retryPublicSettings,
   } = usePublicSettings();
   const registrationEnabled = publicSettings?.registration_enabled ?? false;
-  const siteName = publicSettings?.site_name ?? "Monoize Dashboard";
+  const siteName = publicSettings?.site_name ?? "Botoize Dashboard";
 
   const { login, register, user } = useAuth();
   const navigate = useNavigate();
@@ -179,7 +179,7 @@ export function LoginPage() {
                 variants={itemVariants}
                 className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border bg-background p-2 text-foreground"
               >
-                <MonoizeLogo className="h-full w-full" />
+                <BotoizeLogo className="h-full w-full" />
               </motion.div>
               <motion.div variants={itemVariants}>
                 <CardTitle className="text-2xl">{siteName}</CardTitle>

@@ -27,7 +27,7 @@ import {
 } from "@/components/ui/tooltip";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
-import { MonoizeLogo } from "@/components/MonoizeLogo";
+import { BotoizeLogo } from "@/components/BotoizeLogo";
 import { UserCenterMenu } from "@/components/user-center-menu";
 import { springs } from "@/components/ui/motion";
 import { DashboardScrollParentContext } from "@/lib/dashboard-scroll";
@@ -106,8 +106,8 @@ function AppSidebar() {
   const collapsed = !isMobile && state === "collapsed";
   const onNavigate = () => setOpenMobile(false);
   const visibleRoutes = visibleProductRoutes(user?.role);
-  const navItems = visibleRoutes.filter((item) => !item.ownerOnly);
-  const ownerNavItems = visibleRoutes.filter((item) => item.ownerOnly);
+  const navItems = visibleRoutes.filter((item) => !item.platform && !item.ownerOnly);
+  const ownerNavItems = visibleRoutes.filter((item) => item.platform || item.ownerOnly);
 
   return (
     <Sidebar variant="sidebar" collapsible="icon">
@@ -124,8 +124,8 @@ function AppSidebar() {
                 aria-expanded={false}
                 onClick={toggleSidebar}
               >
-                <span className="relative flex size-8 items-center justify-center rounded-lg bg-foreground text-background shadow-sm">
-                  <MonoizeLogo className="absolute inset-0 !size-full transition-opacity duration-150 group-hover:opacity-0 group-focus-visible:opacity-0" />
+                <span className="relative flex size-8 items-center justify-center">
+                  <BotoizeLogo className="absolute inset-0 !size-full transition-opacity duration-150 group-hover:opacity-0 group-focus-visible:opacity-0" />
                   <PanelLeftOpen
                     data-icon="inline-start"
                     className="opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100"
@@ -148,13 +148,13 @@ function AppSidebar() {
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 transition={springs.snappy}
-                className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-foreground text-background shadow-sm"
+                className="flex size-8 shrink-0 items-center justify-center"
               >
-                <MonoizeLogo className="size-full" />
+                <BotoizeLogo className="size-full" />
               </motion.div>
               <div className="flex min-w-0 flex-col leading-none">
                 <span className="truncate font-display text-sm font-semibold tracking-tight">
-                  Monoize
+                  Botoize
                 </span>
                 <span className="mt-0.5 truncate text-xs text-muted-foreground">
                   QQ Bot Proxy

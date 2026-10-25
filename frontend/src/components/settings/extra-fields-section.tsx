@@ -32,25 +32,25 @@ export function ExtraFieldsSection({ settings, onChange }: ExtraFieldsSectionPro
         <SettingRow key={providerType} id={`extra_fields_${providerType}`}>
           <Input
             id={`extra_fields_${providerType}`}
-            value={(settings.monoize_extra_fields_whitelist?.[providerType] ?? []).join(", ")}
+            value={(settings.botoize_extra_fields_whitelist?.[providerType] ?? []).join(", ")}
             onChange={(e) => {
               const fields = parseFieldList(e.target.value);
               onChange({
-                monoize_extra_fields_whitelist: {
-                  ...settings.monoize_extra_fields_whitelist,
+                botoize_extra_fields_whitelist: {
+                  ...settings.botoize_extra_fields_whitelist,
                   [providerType]: fields.length > 0 ? fields : undefined!,
                 },
               });
             }}
             onBlur={(e) => {
               const fields = parseFieldList(e.target.value);
-              const next = { ...(settings.monoize_extra_fields_whitelist ?? {}) };
+              const next = { ...(settings.botoize_extra_fields_whitelist ?? {}) };
               if (fields.length > 0) {
                 next[providerType] = fields;
               } else {
                 delete next[providerType];
               }
-              onChange({ monoize_extra_fields_whitelist: next });
+              onChange({ botoize_extra_fields_whitelist: next });
             }}
             placeholder={t("settings.extraFieldsWhitelistPlaceholder")}
             className="font-mono text-sm"

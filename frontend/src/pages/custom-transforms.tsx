@@ -45,10 +45,10 @@ import {
   deleteCustomTransformOptimistic,
 } from "@/lib/swr";
 import type { CustomTransform } from "@/lib/api";
-import skillMarkdown from "@/skills/monoize-custom-transform-design.skill.md?raw";
+import skillMarkdown from "@/skills/botoize-custom-transform-design.skill.md?raw";
 
 const CREATE_TEMPLATE = `/**
- * @monoize-transform
+ * @botoize-transform
  * id: js:my-transform
  * name: My Transform
  * description: Describe what this transform does.
@@ -72,7 +72,7 @@ function transform(ctx) {
   // ctx.data: URP payload (mutable JSON)
   // ctx.config: rule config object
   // ctx.state: per-request state, survives across stream events
-  // Monoize.fetch(url, options): host HTTP bridge
+  // Botoize.fetch(url, options): host HTTP bridge
 }
 `;
 

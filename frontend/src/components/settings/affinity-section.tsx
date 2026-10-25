@@ -24,21 +24,21 @@ export function AffinitySection({ settings, onChange }: AffinitySectionProps) {
 
   return (
     <SettingsGroup id="affinity">
-      <SettingRow id="monoize_affinity_enabled" switchControl>
+      <SettingRow id="botoize_affinity_enabled" switchControl>
         <Switch
-          id="monoize_affinity_enabled"
-          checked={settings.monoize_affinity_enabled}
-          onCheckedChange={(checked) => onChange({ monoize_affinity_enabled: checked })}
+          id="botoize_affinity_enabled"
+          checked={settings.botoize_affinity_enabled}
+          onCheckedChange={(checked) => onChange({ botoize_affinity_enabled: checked })}
         />
       </SettingRow>
-      <SettingRow id="monoize_affinity_failback_mode">
+      <SettingRow id="botoize_affinity_failback_mode">
         <Select
-          value={settings.monoize_affinity_failback_mode}
-          onValueChange={(value: SystemSettings["monoize_affinity_failback_mode"]) =>
-            onChange({ monoize_affinity_failback_mode: value })
+          value={settings.botoize_affinity_failback_mode}
+          onValueChange={(value: SystemSettings["botoize_affinity_failback_mode"]) =>
+            onChange({ botoize_affinity_failback_mode: value })
           }
         >
-          <SelectTrigger id="monoize_affinity_failback_mode">
+          <SelectTrigger id="botoize_affinity_failback_mode">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -51,28 +51,28 @@ export function AffinitySection({ settings, onChange }: AffinitySectionProps) {
           </SelectContent>
         </Select>
       </SettingRow>
-      <SettingRow id="monoize_affinity_idle_ttl_seconds">
+      <SettingRow id="botoize_affinity_idle_ttl_seconds">
         <Input
-          id="monoize_affinity_idle_ttl_seconds"
+          id="botoize_affinity_idle_ttl_seconds"
           type="number"
           min="1"
-          value={settings.monoize_affinity_idle_ttl_seconds}
+          value={settings.botoize_affinity_idle_ttl_seconds}
           onChange={(event) =>
             onChange({
-              monoize_affinity_idle_ttl_seconds: Math.max(1, parseInt(event.target.value) || 1),
+              botoize_affinity_idle_ttl_seconds: Math.max(1, parseInt(event.target.value) || 1),
             })
           }
         />
       </SettingRow>
-      <SettingRow id="monoize_affinity_failback_delay_seconds">
+      <SettingRow id="botoize_affinity_failback_delay_seconds">
         <Input
-          id="monoize_affinity_failback_delay_seconds"
+          id="botoize_affinity_failback_delay_seconds"
           type="number"
           min="0"
-          value={settings.monoize_affinity_failback_delay_seconds}
+          value={settings.botoize_affinity_failback_delay_seconds}
           onChange={(event) =>
             onChange({
-              monoize_affinity_failback_delay_seconds: Math.max(
+              botoize_affinity_failback_delay_seconds: Math.max(
                 0,
                 parseInt(event.target.value) || 0
               ),

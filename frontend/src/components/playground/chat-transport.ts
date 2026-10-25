@@ -23,7 +23,7 @@ export interface ChatRequestConfig {
 }
 
 const INTERNAL_PLAYGROUND_SDK_API_KEY =
-  "monoize-playground-session-placeholder";
+  "botoize-playground-session-placeholder";
 
 type ValidChatRequestAuth = Exclude<
   ChatRequestAuth,
@@ -40,14 +40,14 @@ function withInternalPlaygroundAuth(
 
     // @ai-sdk/openai requires an apiKey before it builds any request. Remove
     // that local placeholder at the final fetch boundary so session mode can
-    // never be interpreted as API-key authentication by Monoize.
+    // never be interpreted as API-key authentication by Botoize.
     headers.delete("authorization");
     headers.delete("x-api-key");
-    headers.set("x-monoize-internal-source", "playground");
+    headers.set("x-botoize-internal-source", "playground");
     if (group.trim()) {
-      headers.set("x-monoize-playground-group", group.trim());
+      headers.set("x-botoize-playground-group", group.trim());
     } else {
-      headers.delete("x-monoize-playground-group");
+      headers.delete("x-botoize-playground-group");
     }
 
     return baseFetch(input, {
@@ -65,7 +65,7 @@ export function createPlaygroundOpenAIProvider(
 ) {
   const rewriteFetch = withRawReasoningRewrite(baseFetch);
   return createOpenAI({
-    name: "monoize",
+    name: "botoize",
     baseURL: `${origin}/api/v1`,
     ...(auth.mode === "internal"
       ? {
@@ -82,7 +82,7 @@ export function createPlaygroundOpenAIProvider(
 /**
  * Strips assistant `file` and `reasoning` parts before model conversion
  * (PG-CHAT3): generated images cannot be replayed as assistant content, and
- * reasoning is never replayed because Monoize may route each request to a
+ * reasoning is never replayed because Botoize may route each request to a
  * different upstream. When stripping empties a message, a literal "[image]"
  * text part is substituted if a file part was removed (the message showed an
  * image); otherwise the message is dropped from the outgoing conversation.
@@ -150,13 +150,13 @@ function parsePositiveInt(value: string): number | undefined {
 
 /**
  * ChatTransport that runs the AI SDK OpenAI Responses model in the browser
- * against the local Monoize proxy (`POST /api/v1/responses`), bypassing any
+ * against the local Botoize proxy (`POST /api/v1/responses`), bypassing any
  * UI-message server protocol (PG-CHAT1/PG-CHAT2). Config is read at call time
  * so selector changes apply to regenerations too. The provider fetch is
  * wrapped with the PG-CHAT7 raw-reasoning SSE adapter so open-source CoT
  * (`response.reasoning_text.*`) surfaces as reasoning UI parts.
  */
-export class MonoizeChatTransport implements ChatTransport<UIMessage> {
+export class BotoizeChatTransport implements ChatTransport<UIMessage> {
   private config: ChatRequestConfig;
   private missingModelMessage: string;
 

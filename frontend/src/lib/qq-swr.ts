@@ -3,6 +3,7 @@ import { qqApi } from "./qq-api";
 import type {
   ApiKeyInfo,
   ApiCallPage,
+  ApiCallFilters,
   BotGrant,
   BotInfo,
   DashboardOverview,
@@ -69,8 +70,8 @@ export function useQQDeliveries(config?: SWRConfiguration, enabled = true) {
   return useSWR<DeliveryPage>(enabled ? QQ_SWR_KEYS.deliveries : null, () => qqApi.deliveries(), { ...defaults, ...config });
 }
 
-export function useQQApiCalls(config?: SWRConfiguration, before?: string, enabled = true) {
-  return useSWR<ApiCallPage>(enabled ? [QQ_SWR_KEYS.apiCalls, before ?? ""] : null, () => qqApi.apiCalls(before), { ...defaults, ...config });
+export function useQQApiCalls(config?: SWRConfiguration, before?: string, enabled = true, filters?: ApiCallFilters) {
+  return useSWR<ApiCallPage>(enabled ? [QQ_SWR_KEYS.apiCalls, before ?? "", JSON.stringify(filters ?? {})] : null, () => filters ? qqApi.apiCalls(before, filters) : qqApi.apiCalls(before), { ...defaults, ...config });
 }
 
 export function useQQOverview(windowHours: number, config?: SWRConfiguration) {

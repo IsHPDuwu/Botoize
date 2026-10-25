@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { productRoutes, resolveProductRoute, visibleProductRoutes } from "./product-routes";
 
 describe("QQ product route visibility", () => {
-  it("keeps unrelated Monoize product routes unavailable", () => {
+  it("keeps unrelated Botoize product routes unavailable", () => {
     for (const id of ["playground", "billing-plans", "models", "wallet", "payments", "groups-legacy"]) {
       const route = productRoutes.find((item) => item.id === id);
       expect(route?.enabled).toBe(false);

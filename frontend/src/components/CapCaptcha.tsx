@@ -74,7 +74,7 @@ export function CapCaptcha({
       required
       data-cap-api-endpoint={apiEndpoint}
       data-cap-lang={capLanguage(language)}
-      className="monoize-cap-widget"
+      className="botoize-cap-widget"
     />
   );
 }

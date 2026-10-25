@@ -1,9 +1,9 @@
 /**
- * Raw-reasoning SSE adapter for the Monoize Responses stream (PG-CHAT7/PG-CHAT8).
+ * Raw-reasoning SSE adapter for the Botoize Responses stream (PG-CHAT7/PG-CHAT8).
  *
  * `@ai-sdk/openai@4` parses the reasoning-summary event family but drops the
  * official raw-reasoning events `response.reasoning_text.delta` / `.done` that
- * Monoize emits for `Reasoning.content` (open-source CoT models). This adapter
+ * Botoize emits for `Reasoning.content` (open-source CoT models). This adapter
  * rewrites only those two event types into summary-family events whose
  * `summary_index` is offset by a large base, so raw reasoning surfaces as
  * distinct reasoning UI parts while every other frame passes through
@@ -43,7 +43,7 @@ interface RawReasoningEvent {
 }
 
 function parseFrameData(frame: string): RawReasoningEvent | null {
-  // Monoize emits exactly one single-line `data:` field per frame
+  // Botoize emits exactly one single-line `data:` field per frame
   // (long payloads are split into multiple frames, never multi-line data).
   const dataLine = frame
     .split("\n")

@@ -1,6 +1,6 @@
 ---
 name: bot-proxy-console-design
-description: "QQ 官方机器人中转控制台的 Monoize 风格 React/Vite 界面规范，覆盖认证、概览、资源管理、日志、授权和接入说明。"
+description: "QQ 官方机器人中转控制台的 上游风格 React/Vite 界面规范，覆盖认证、概览、资源管理、日志、授权和接入说明。"
 version: "2026-10-25"
 ---
 
@@ -10,7 +10,7 @@ version: "2026-10-25"
 
 ## 1. 设计方向
 
-- [MUST] 使用 Monoize 的克制中性色、紧凑侧栏、清晰层级和少量强调色；保留项目的 QQ Bot Proxy 品牌文案。
+- [MUST] 使用上游的克制中性色、紧凑侧栏、清晰层级和少量强调色；使用 Botoize 品牌文案。
 - [MUST] 以 Tailwind CSS、现有 shadcn/Radix 风格组件、Lucide 图标和项目主题令牌实现界面；不得重新引入 Fluent-only 或 no-CSS 约束。
 - [MUST] 视觉状态必须同时提供可读文字，不能只依靠颜色区分成功、失败、待处理和禁用。
 - [SHOULD] 颜色、圆角、字号、阴影优先使用 `frontend/src/App.css` 中 `.fui-FluentProvider` 的语义令牌和 Tailwind 语义类，不在页面组件硬编码色值。
@@ -49,7 +49,7 @@ version: "2026-10-25"
 - [SHOULD] 列表行或卡片内将名称作为主信息，技术标识、scope、revision 和时间作为辅助信息；低频动作收进菜单或对话框。
 - [MUST] 权限、Owner-only、禁用、已撤销和失效状态同时用文字表达；不可仅用颜色或图标表达。
 - [SHOULD] 编辑和密码确认使用 Dialog；成功、失败和撤销结果使用局部 toast/提示，不清空用户上下文。
-- [SHOULD] “分组管理”在本产品中表达 BotGrant 权限管理，不呈现 Monoize 计费分组含义。
+- [SHOULD] “分组管理”在本产品中表达 BotGrant 权限管理，不呈现 上游计费分组含义。
 
 ### 3.4 日志与详情
 
@@ -78,4 +78,4 @@ version: "2026-10-25"
 - [MUST] 验收至少覆盖 1440×900 和 390×844；检查侧栏、标题、表格、Dialog、空态、错误态和长文本。
 - [MUST] 运行页面检查时统计字号低于 12px、异常圆角、横向溢出和缺少 aria-label 的图标按钮。
 - [SHOULD] 通过真实管理 API 的 loading/error/empty 状态验收，不用模拟 Provider、模型、余额、支付或计费数据。
-- [MUST] 视觉调整不改变后端权限边界：Owner-only 页面、隐藏 Monoize 页面和未实现能力必须继续由路由与后端共同约束。
+- [MUST] 视觉调整不改变后端权限边界：Owner-only 页面、隐藏的上游业务页面和未实现能力必须继续由路由与后端共同约束。

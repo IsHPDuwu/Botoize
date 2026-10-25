@@ -14,7 +14,7 @@ import {
   useMarketplaceModels,
 } from "@/lib/swr";
 import {
-  MonoizeChatTransport,
+  BotoizeChatTransport,
   type ChatRequestAuth,
 } from "@/components/playground/chat-transport";
 import { Composer, type ComposerMode } from "@/components/playground/composer";
@@ -197,7 +197,7 @@ export function PlaygroundPage() {
 
   const [transport] = useState(
     () =>
-      new MonoizeChatTransport(
+      new BotoizeChatTransport(
         {
           model: prefs.chatModel,
           auth: chatAuth,

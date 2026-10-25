@@ -5,7 +5,7 @@ import { ModelBadge } from '@/components/ModelBadge'
 import { StatusBadge } from '@/components/ui/status'
 import type {
 	ModelMetadataRecord,
-	MonoizeChannel,
+	BotoizeChannel,
 	ProviderModelRuntimeStatus
 } from '@/lib/api'
 import { formatDateTime } from '@/lib/format-time'
@@ -118,7 +118,7 @@ export function ChannelRuntimeStatus({
 	channel,
 	perModelCircuitBreak
 }: {
-	channel: MonoizeChannel
+	channel: BotoizeChannel
 	perModelCircuitBreak: boolean
 }) {
 	const { t } = useTranslation()

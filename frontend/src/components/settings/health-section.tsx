@@ -71,74 +71,74 @@ export function HealthSection({
 
   const passiveFields: NumberFieldSpec[] = [
     {
-      id: "monoize_passive_failure_threshold",
-      value: settings.monoize_passive_failure_threshold,
+      id: "botoize_passive_failure_threshold",
+      value: settings.botoize_passive_failure_threshold,
       min: 1,
       parse: (raw) => Math.max(1, parseInt(raw) || 3),
-      apply: (parsed) => ({ monoize_passive_failure_threshold: parsed }),
+      apply: (parsed) => ({ botoize_passive_failure_threshold: parsed }),
     },
     {
-      id: "monoize_passive_cooldown_seconds",
-      value: settings.monoize_passive_cooldown_seconds,
+      id: "botoize_passive_cooldown_seconds",
+      value: settings.botoize_passive_cooldown_seconds,
       min: 1,
       parse: (raw) => Math.max(1, parseInt(raw) || 60),
-      apply: (parsed) => ({ monoize_passive_cooldown_seconds: parsed }),
+      apply: (parsed) => ({ botoize_passive_cooldown_seconds: parsed }),
     },
     {
-      id: "monoize_passive_window_seconds",
-      value: settings.monoize_passive_window_seconds,
+      id: "botoize_passive_window_seconds",
+      value: settings.botoize_passive_window_seconds,
       min: 1,
       parse: (raw) => Math.max(1, parseInt(raw) || 30),
-      apply: (parsed) => ({ monoize_passive_window_seconds: parsed }),
+      apply: (parsed) => ({ botoize_passive_window_seconds: parsed }),
     },
     {
-      id: "monoize_passive_min_samples",
-      value: settings.monoize_passive_min_samples,
+      id: "botoize_passive_min_samples",
+      value: settings.botoize_passive_min_samples,
       min: 1,
       parse: (raw) => Math.max(1, parseInt(raw) || 20),
-      apply: (parsed) => ({ monoize_passive_min_samples: parsed }),
+      apply: (parsed) => ({ botoize_passive_min_samples: parsed }),
     },
     {
-      id: "monoize_passive_failure_rate_threshold",
-      value: settings.monoize_passive_failure_rate_threshold,
+      id: "botoize_passive_failure_rate_threshold",
+      value: settings.botoize_passive_failure_rate_threshold,
       min: 0.01,
       max: 1,
       step: "0.01",
       parse: (raw) => Math.min(1, Math.max(0.01, parseFloat(raw) || 0.6)),
-      apply: (parsed) => ({ monoize_passive_failure_rate_threshold: parsed }),
+      apply: (parsed) => ({ botoize_passive_failure_rate_threshold: parsed }),
     },
     {
-      id: "monoize_passive_rate_limit_cooldown_seconds",
-      value: settings.monoize_passive_rate_limit_cooldown_seconds,
+      id: "botoize_passive_rate_limit_cooldown_seconds",
+      value: settings.botoize_passive_rate_limit_cooldown_seconds,
       min: 1,
       parse: (raw) => Math.max(1, parseInt(raw) || 15),
-      apply: (parsed) => ({ monoize_passive_rate_limit_cooldown_seconds: parsed }),
+      apply: (parsed) => ({ botoize_passive_rate_limit_cooldown_seconds: parsed }),
     },
   ];
 
   return (
     <>
       <SettingsGroup id="health.probe">
-        {switchRow("monoize_active_probe_enabled")}
+        {switchRow("botoize_active_probe_enabled")}
         {numberRow({
-          id: "monoize_active_probe_interval_seconds",
-          value: settings.monoize_active_probe_interval_seconds,
+          id: "botoize_active_probe_interval_seconds",
+          value: settings.botoize_active_probe_interval_seconds,
           min: 1,
           parse: (raw) => Math.max(1, parseInt(raw) || 30),
-          apply: (parsed) => ({ monoize_active_probe_interval_seconds: parsed }),
+          apply: (parsed) => ({ botoize_active_probe_interval_seconds: parsed }),
         })}
         {numberRow({
-          id: "monoize_active_probe_success_threshold",
-          value: settings.monoize_active_probe_success_threshold,
+          id: "botoize_active_probe_success_threshold",
+          value: settings.botoize_active_probe_success_threshold,
           min: 1,
           parse: (raw) => Math.max(1, parseInt(raw) || 1),
-          apply: (parsed) => ({ monoize_active_probe_success_threshold: parsed }),
+          apply: (parsed) => ({ botoize_active_probe_success_threshold: parsed }),
         })}
-        <SettingRow id="monoize_active_probe_model">
+        <SettingRow id="botoize_active_probe_model">
           <Input
-            id="monoize_active_probe_model"
-            value={settings.monoize_active_probe_model ?? ""}
-            onChange={(e) => onChange({ monoize_active_probe_model: e.target.value || null })}
+            id="botoize_active_probe_model"
+            value={settings.botoize_active_probe_model ?? ""}
+            onChange={(e) => onChange({ botoize_active_probe_model: e.target.value || null })}
             placeholder={t("settings.activeProbeModelPlaceholder")}
           />
         </SettingRow>
@@ -147,29 +147,29 @@ export function HealthSection({
       <SettingsGroup id="health.passive">{passiveFields.map(numberRow)}</SettingsGroup>
 
       <SettingsGroup id="health.capture">
-        {switchRow("monoize_request_capture_enabled")}
-        {switchRow("monoize_mask_sensitive_info")}
+        {switchRow("botoize_request_capture_enabled")}
+        {switchRow("botoize_mask_sensitive_info")}
         {numberRow({
-          id: "monoize_request_capture_max_total_bytes",
-          value: Math.round(settings.monoize_request_capture_max_total_bytes / 1048576),
+          id: "botoize_request_capture_max_total_bytes",
+          value: Math.round(settings.botoize_request_capture_max_total_bytes / 1048576),
           min: 0,
           parse: (raw) => Math.max(0, parseInt(raw) || 0),
           // SSU-2a: edited in MiB, stored in bytes; 0 disables the budget.
-          apply: (mib) => ({ monoize_request_capture_max_total_bytes: mib * 1048576 }),
+          apply: (mib) => ({ botoize_request_capture_max_total_bytes: mib * 1048576 }),
         })}
       </SettingsGroup>
 
       <SettingsGroup id="health.runtime">
-        {switchRow("monoize_enable_estimated_billing")}
-        {switchRow("monoize_strip_cross_protocol_nested_extra")}
+        {switchRow("botoize_enable_estimated_billing")}
+        {switchRow("botoize_strip_cross_protocol_nested_extra")}
         {switchRow("allow_free_when_unpriced")}
         {switchRow("allow_free_when_missing_usage")}
         {numberRow({
-          id: "monoize_request_timeout_ms",
-          value: settings.monoize_request_timeout_ms,
+          id: "botoize_request_timeout_ms",
+          value: settings.botoize_request_timeout_ms,
           min: 1,
           parse: (raw) => Math.max(1, parseInt(raw) || 30000),
-          apply: (parsed) => ({ monoize_request_timeout_ms: parsed }),
+          apply: (parsed) => ({ botoize_request_timeout_ms: parsed }),
         })}
       </SettingsGroup>
 

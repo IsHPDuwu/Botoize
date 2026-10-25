@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Languages, Moon, Sun } from "lucide-react";
-import { MonoizeLogo } from "@/components/MonoizeLogo";
+import { BotoizeLogo } from "@/components/BotoizeLogo";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -60,10 +60,10 @@ export function LoginPage() {
         <div className="my-auto w-full max-w-md shrink-0 self-center">
           <Card className="overflow-hidden">
             <CardHeader className="text-center">
-              <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border bg-background p-2 text-foreground">
-                <MonoizeLogo className="h-full w-full" />
+              <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center">
+                <BotoizeLogo className="h-full w-full" />
               </div>
-              <CardTitle className="text-2xl">Monoize Console</CardTitle>
+              <CardTitle className="text-2xl">Botoize Console</CardTitle>
               <CardDescription>QQ 官方机器人中转控制台</CardDescription>
             </CardHeader>
             <CardContent>
@@ -79,7 +79,7 @@ export function LoginPage() {
                 {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
                 <Button className="w-full" variant="primary" type="submit" disabled={busy || !username.trim() || !password}>{busy ? "正在登录…" : "登录"}</Button>
               </form>
-              <p className="mt-4 text-center text-sm text-muted-foreground">仅限已开通账号。请联系平台 Owner 获取访问权限。</p>
+              <p className="mt-4 text-center text-sm text-muted-foreground">请联系平台 Owner 开通账号，或<a href="/register" className="underline underline-offset-4">使用邀请注册</a>。</p>
             </CardContent>
           </Card>
         </div>

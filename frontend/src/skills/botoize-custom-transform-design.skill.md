@@ -1,8 +1,8 @@
-# Skill: monoize-custom-transform-design
+# Skill: botoize-custom-transform-design
 
-Display title: Monoize Custom Transform Design / Monoize 自定义变换设计
+Display title: Botoize Custom Transform Design / Botoize 自定义变换设计
 
-Use this skill when you write a custom JavaScript transform for Monoize.
+Use this skill when you write a custom JavaScript transform for Botoize.
 A custom transform runs in an embedded QuickJS sandbox inside the URP v2 transform pipeline.
 
 ## 1. Script structure
@@ -17,7 +17,7 @@ Example:
 
 ```js
 /**
- * @monoize-transform
+ * @botoize-transform
  * id: js:example-rewrite
  * name: Example Rewrite
  * description: Rewrites request fields for demo.
@@ -43,7 +43,7 @@ function transform(ctx) {
 
 Start the file with one block comment (`/*` or `/**`).
 Put one directive line and one `key: value` pair per line inside the comment.
-The first non-empty line must be exactly `@monoize-transform`.
+The first non-empty line must be exactly `@botoize-transform`.
 
 Required keys:
 
@@ -67,7 +67,7 @@ Do not repeat a key. Do not add other keys. The save is rejected on any violatio
 ## 3. The transform function
 
 Define one global function `transform(ctx)`.
-Monoize evaluates the full source and then calls `transform(ctx)` once per invocation.
+Botoize evaluates the full source and then calls `transform(ctx)` once per invocation.
 No JavaScript value survives between invocations. Use `ctx.state` for per-request state.
 
 The `ctx` object has exactly these properties:
@@ -125,7 +125,7 @@ function transform(ctx) {
 
 ## 7. Network bridge
 
-Call `Monoize.fetch(url, options?)` for HTTP requests. The call blocks and returns
+Call `Botoize.fetch(url, options?)` for HTTP requests. The call blocks and returns
 `{ status, headers, body }`.
 
 - `options.method`: string. Default `"GET"`.
@@ -142,7 +142,7 @@ Example:
 
 ```js
 function transform(ctx) {
-  const res = Monoize.fetch("https://api.example.com/lookup", {
+  const res = Botoize.fetch("https://api.example.com/lookup", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ model: ctx.data.model })
@@ -170,7 +170,7 @@ When you omit `configSchema`, the rule has an empty config object.
 
 - The sandbox has no filesystem API. Do not attempt file access.
 - The sandbox has no process, module loader, timer, or dynamic import API.
-- Network access is only available through `Monoize.fetch`.
+- Network access is only available through `Botoize.fetch`.
 - Each invocation runs with a memory limit (default 32 MiB), a stack limit (default 1 MiB), and a wall-clock budget (default 10 s).
 - A script throw, a limit violation, or an invalid return value fails the current request with a transform apply error. The proxy process continues.
 

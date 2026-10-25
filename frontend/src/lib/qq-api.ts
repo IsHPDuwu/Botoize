@@ -84,6 +84,7 @@ export interface HttpSubscription {
 export interface EventRecord {
   id: number;
   bot: number;
+  bot_name: string;
   event_id: string;
   event_type: string;
   received_at: string;
@@ -100,6 +101,9 @@ export interface DeliveryRecord {
   id: number;
   event_id: string;
   bot: number;
+  bot_name: string;
+  username: string;
+  subscription: number;
   user: number;
   state: "pending" | "processing" | "delivered" | "failed" | "cancelled";
   attempts: number;
@@ -118,6 +122,9 @@ export interface ApiCallRecord {
   request_id: string;
   bot: number | null;
   api_key: number | null;
+  bot_name: string;
+  username: string;
+  key_name: string;
   method: string;
   path: string;
   message_type: string;
@@ -138,9 +145,17 @@ export interface UserSummary {
   username: string;
   role: UserRole;
   is_active: boolean;
+  email?: string;
+  date_joined?: string;
+  last_login?: string | null;
 }
 
 export interface DashboardOverview {
+  gateway_worker_count: number;
+  api_call_count: number;
+  api_success_count: number;
+  api_error_count: number;
+  channels: ChannelStatus[];
   window_hours: number;
   window_start: string;
   generated_at: string;
@@ -154,6 +169,14 @@ export interface DashboardOverview {
   failed_count: number;
   cancelled_count: number;
 }
+
+export interface ChannelStatus {
+  bot: number; name: string; channel: number; channel_name: string; provider_name: string;
+  interface_type: string; enabled: boolean; worker_lease_live: boolean; session_recorded: boolean;
+  lease_until: string | null; last_call_at: string | null; last_http_status: number | null;
+}
+
+export type ApiCallFilters = Partial<Record<'search' | 'username' | 'path' | 'bot' | 'api_key' | 'method' | 'status' | 'replayed' | 'from' | 'to', string>>;
 
 export class ManagementApiError extends Error {
   readonly status: number;
@@ -269,7 +292,11 @@ export const qqApi = {
   subscriptions: () => management<HttpSubscription[]>("subscriptions/"),
   events: (before?: string) => management<EventPage>(`events/${before ? `?before=${encodeURIComponent(before)}` : ""}`),
   deliveries: (before?: string) => management<DeliveryPage>(`deliveries/${before ? `?before=${encodeURIComponent(before)}` : ""}`),
-  apiCalls: (before?: string) => management<ApiCallPage>(`api-calls/${before ? `?before=${encodeURIComponent(before)}` : ""}`),
+  apiCalls: (before?: string, filters?: ApiCallFilters) => {
+    const query = new URLSearchParams(Object.entries(filters ?? {}).filter(([, value]) => value));
+    if (before) query.set('before', before);
+    return management<ApiCallPage>(`api-calls/${query.size ? `?${query}` : ""}`);
+  },
   users: () => management<UserSummary[]>("users/"),
   overview: (windowHours: number) => management<DashboardOverview>(`dashboard/overview/?window_hours=${windowHours}`),
 };

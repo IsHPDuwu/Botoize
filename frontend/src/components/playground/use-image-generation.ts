@@ -140,9 +140,9 @@ export async function requestImages(
 ): Promise<ImageApiDataItem[]> {
   const authHeaders: Record<string, string> = input.apiKey
     ? { Authorization: `Bearer ${input.apiKey}` }
-    : { "x-monoize-internal-source": "playground" };
+    : { "x-botoize-internal-source": "playground" };
   if (!input.apiKey && input.group.trim()) {
-    authHeaders["x-monoize-playground-group"] = input.group.trim();
+    authHeaders["x-botoize-playground-group"] = input.group.trim();
   }
   const internalCredentials = input.apiKey
     ? {}

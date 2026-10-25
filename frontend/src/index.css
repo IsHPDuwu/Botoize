@@ -201,7 +201,7 @@
 }
 
 @layer components {
-	cap-widget.monoize-cap-widget {
+	cap-widget.botoize-cap-widget {
 		--cap-background: hsl(var(--background));
 		--cap-border-color: hsl(var(--border));
 		--cap-border-radius: 8px;

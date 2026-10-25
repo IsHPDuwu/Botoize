@@ -280,27 +280,27 @@ export interface SystemSettings {
   codex_model_ids: string[];
   dashboard_performance_group_ids: string[];
   dashboard_performance_model_ids: string[];
-  monoize_active_probe_enabled: boolean;
-  monoize_active_probe_interval_seconds: number;
-  monoize_active_probe_success_threshold: number;
-  monoize_active_probe_model?: string | null;
-  monoize_affinity_enabled: boolean;
-  monoize_affinity_idle_ttl_seconds: number;
-  monoize_affinity_failback_mode: AffinityFailbackMode;
-  monoize_affinity_failback_delay_seconds: number;
-  monoize_passive_failure_threshold: number;
-  monoize_passive_cooldown_seconds: number;
-  monoize_passive_window_seconds: number;
-  monoize_passive_min_samples: number;
-  monoize_passive_failure_rate_threshold: number;
-  monoize_passive_rate_limit_cooldown_seconds: number;
-  monoize_request_timeout_ms: number;
-  monoize_enable_estimated_billing: boolean;
-  monoize_extra_fields_whitelist: Record<string, string[]>;
-  monoize_strip_cross_protocol_nested_extra: boolean;
-  monoize_request_capture_enabled: boolean;
-  monoize_request_capture_max_total_bytes: number;
-  monoize_mask_sensitive_info: boolean;
+  botoize_active_probe_enabled: boolean;
+  botoize_active_probe_interval_seconds: number;
+  botoize_active_probe_success_threshold: number;
+  botoize_active_probe_model?: string | null;
+  botoize_affinity_enabled: boolean;
+  botoize_affinity_idle_ttl_seconds: number;
+  botoize_affinity_failback_mode: AffinityFailbackMode;
+  botoize_affinity_failback_delay_seconds: number;
+  botoize_passive_failure_threshold: number;
+  botoize_passive_cooldown_seconds: number;
+  botoize_passive_window_seconds: number;
+  botoize_passive_min_samples: number;
+  botoize_passive_failure_rate_threshold: number;
+  botoize_passive_rate_limit_cooldown_seconds: number;
+  botoize_request_timeout_ms: number;
+  botoize_enable_estimated_billing: boolean;
+  botoize_extra_fields_whitelist: Record<string, string[]>;
+  botoize_strip_cross_protocol_nested_extra: boolean;
+  botoize_request_capture_enabled: boolean;
+  botoize_request_capture_max_total_bytes: number;
+  botoize_mask_sensitive_info: boolean;
   allow_free_when_unpriced: boolean;
   allow_free_when_missing_usage: boolean;
   tool_prices: Record<string, ToolPriceEntry>;
@@ -567,12 +567,12 @@ export interface ConfigOverview {
   };
 }
 
-export interface MonoizeModelEntry {
+export interface BotoizeModelEntry {
   redirect: string | null;
   multiplier: string;
 }
 
-export interface MonoizeChannel {
+export interface BotoizeChannel {
   id: string;
   name: string;
   provider_type: ProviderType;
@@ -583,7 +583,7 @@ export interface MonoizeChannel {
   passive_cooldown_seconds_override?: number | null;
   passive_window_seconds_override?: number | null;
   passive_rate_limit_cooldown_seconds_override?: number | null;
-  models: Record<string, MonoizeModelEntry>;
+  models: Record<string, BotoizeModelEntry>;
   active_probe_enabled_override?: boolean | null;
   active_probe_interval_seconds_override?: number | null;
   active_probe_success_threshold_override?: number | null;
@@ -639,7 +639,7 @@ export interface ApiTypeOverride {
 export interface Provider {
   id: string;
   name: string;
-  channels: MonoizeChannel[];
+  channels: BotoizeChannel[];
   max_retries: number;
   channel_max_retries: number;
   channel_retry_interval_ms: number;
@@ -671,7 +671,7 @@ export interface Provider {
   };
 }
 
-export interface CreateMonoizeChannelInput {
+export interface CreateBotoizeChannelInput {
   id?: string;
   name: string;
   provider_type: ProviderType;
@@ -683,7 +683,7 @@ export interface CreateMonoizeChannelInput {
   passive_cooldown_seconds_override?: number | null;
   passive_window_seconds_override?: number | null;
   passive_rate_limit_cooldown_seconds_override?: number | null;
-  models: Record<string, MonoizeModelEntry>;
+  models: Record<string, BotoizeModelEntry>;
   active_probe_enabled_override?: boolean | null;
   active_probe_interval_seconds_override?: number | null;
   active_probe_success_threshold_override?: number | null;
@@ -700,7 +700,7 @@ export interface CreateMonoizeChannelInput {
 
 export interface CreateProviderInput {
   name: string;
-  channels: CreateMonoizeChannelInput[];
+  channels: CreateBotoizeChannelInput[];
   max_retries?: number;
   channel_max_retries?: number;
   channel_retry_interval_ms?: number;
@@ -724,7 +724,7 @@ export interface CreateProviderInput {
 
 export interface UpdateProviderInput {
   name?: string;
-  channels?: CreateMonoizeChannelInput[];
+  channels?: CreateBotoizeChannelInput[];
   max_retries?: number;
   channel_max_retries?: number;
   channel_retry_interval_ms?: number;

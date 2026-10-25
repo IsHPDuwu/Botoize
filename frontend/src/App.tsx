@@ -15,6 +15,8 @@ import { LogsPage } from "@/pages/qq/logs";
 import { SettingsPage } from "@/pages/qq/settings";
 import { ApiInfoPage } from "@/pages/qq/api-info";
 import { SubscriptionsPage } from "@/pages/qq/subscriptions";
+import { SystemDashboardPage } from '@/pages/qq/system-dashboard';
+import { RegisterPage } from '@/pages/qq/register';
 import "@/i18n";
 
 function App() {
@@ -31,6 +33,7 @@ function App() {
           <QQAuthProvider>
             <Routes>
               <Route path="/login" element={<LoginPage />} />
+              <Route path="/register" element={<RegisterPage />} />
               {/* Dashboard routes - admin panel */}
               <Route path="/dashboard" element={<DashboardLayout />}>
                 <Route index element={<DashboardPage />} />
@@ -41,6 +44,7 @@ function App() {
                 <Route path="users" element={<UsersPage />} />
                 <Route path="groups" element={<GroupsPage />} />
                 <Route path="admin-settings" element={<SettingsPage />} />
+                <Route path="admin-dashboard" element={<SystemDashboardPage />} />
                 <Route path="api-info" element={<ApiInfoPage />} />
               </Route>
               {/* Redirect root to dashboard */}

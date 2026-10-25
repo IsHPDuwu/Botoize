@@ -178,6 +178,7 @@ export function DateRangePicker({ from, to, onChange, t }: DateRangePickerProps)
 		<Popover open={open} onOpenChange={setOpen}>
 			<PopoverTrigger asChild>
 				<Button
+					type='button'
 					variant='outline'
 					className={cn(
 						'h-9 justify-start text-left font-normal gap-2 min-w-[140px]',
@@ -193,6 +194,7 @@ export function DateRangePicker({ from, to, onChange, t }: DateRangePickerProps)
 					<div className='[contain:inline-size] overflow-x-auto border-b [scrollbar-gutter:stable]'>
 						<div className='flex gap-1 p-2 w-max min-w-full'>
 							<Button
+								type='button'
 								variant='ghost'
 								size='sm'
 								className={cn(
@@ -205,6 +207,7 @@ export function DateRangePicker({ from, to, onChange, t }: DateRangePickerProps)
 							</Button>
 							{presets.map(p => (
 								<Button
+									type='button'
 									key={p.key}
 									variant='ghost'
 									size='sm'

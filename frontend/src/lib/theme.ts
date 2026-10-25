@@ -1,7 +1,7 @@
 export type ThemePreference = "light" | "dark" | "system";
 export type ResolvedTheme = "light" | "dark";
 
-export const THEME_STORAGE_KEY = "monoize-theme";
+export const THEME_STORAGE_KEY = "botoize-theme";
 
 export function getStoredThemePreference(storage: Storage | null | undefined): ThemePreference {
   const stored = storage?.getItem(THEME_STORAGE_KEY);
