@@ -12,7 +12,7 @@ export const productRoutes: ProductRoute[] = [
   { id: "dashboard", path: "/dashboard", title: "仪表盘", description: "中转平台运行概况", icon: "dashboard", enabled: true },
   { id: "providers", path: "/dashboard/providers", title: "服务提供商", description: "管理 QQ 官方机器人", icon: "bot", enabled: true },
   { id: "tokens", path: "/dashboard/tokens", title: "令牌管理", description: "创建和撤销单 Bot API Key", icon: "key", enabled: true },
-  { id: "groups", path: "/dashboard/groups", title: "分组管理", description: "管理 Bot 授权与权限范围", icon: "groups", ownerOnly: true, enabled: true },
+  { id: "groups", path: "/dashboard/groups", title: "分组管理", description: "管理 Bot 授权与会话范围", icon: "groups", enabled: true },
   { id: "logs", path: "/dashboard/logs", title: "日志", description: "查看入库事件与投递状态", icon: "logs", enabled: true },
   { id: "subscriptions", path: "/dashboard/subscriptions", title: "订阅端点", description: "配置 HTTPS 事件回调", icon: "subscriptions", enabled: true },
   { id: "admin-users", path: "/dashboard/users", title: "Owner 用户管理", description: "查看控制台用户", icon: "users", ownerOnly: true, enabled: true },

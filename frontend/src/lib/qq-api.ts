@@ -11,6 +11,38 @@ export interface BotInfo {
   name: string;
   app_id: string;
   is_active: boolean;
+  channel_id: number;
+}
+
+export interface UpstreamInterface {
+  interface_type: string;
+  label: string;
+  implemented: boolean;
+}
+
+export interface UpstreamChannel {
+  id?: number;
+  bot_id?: number;
+  name: string;
+  base_url: string;
+  interface_type: string;
+  app_id: string;
+  is_active: boolean;
+  models: ConversationModel[];
+}
+
+export interface ConversationModel {
+  id?: number;
+  name: string;
+  isDirect: boolean;
+  userid?: string;
+  groupid?: string;
+}
+
+export interface UpstreamProvider {
+  id: number;
+  name: string;
+  channels: UpstreamChannel[];
 }
 
 export interface BotGrant {
@@ -21,6 +53,9 @@ export interface BotGrant {
   scopes: string[];
   is_active?: boolean;
   revision: number;
+  all_conversations?: boolean;
+  conversations?: number[];
+  models?: ConversationModel[];
 }
 
 export interface ApiKeyInfo {
@@ -32,6 +67,9 @@ export interface ApiKeyInfo {
   expires_at: string | null;
   revoked_at: string | null;
   grant_revision: number;
+  all_conversations?: boolean;
+  conversations?: number[];
+  can_copy?: boolean;
 }
 
 export interface HttpSubscription {
@@ -149,8 +187,7 @@ function errorMessage(body: unknown, status: number): { message: string; code?: 
   return { message: `请求失败（${status}）` };
 }
 
-export async function management<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
-  const method = body === undefined ? "GET" : "POST";
+export async function management<T>(path: string, body?: unknown, signal?: AbortSignal, method = body === undefined ? "GET" : "POST"): Promise<T> {
   const headers = new Headers();
   if (body !== undefined) {
     if (!csrfToken) await readCsrfToken();

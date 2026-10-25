@@ -9,7 +9,7 @@ import { Link } from "react-router-dom";
 
 const guideSections = [
   { icon: Webhook, title: "官方 Webhook", state: "支持入站", detail: "官方平台回调写入事件与 Outbox；请为 Bot 配置本平台对应的 Webhook 地址。具体路径由部署入口提供。" },
-  { icon: Wifi, title: "原生事件 WebSocket", state: "有限支持", detail: "数据面事件流走 /relay/v1/events/，需要 events:read scope；此功能不是官方 QQ Gateway 长连接。" },
+  { icon: Wifi, title: "原生事件 WebSocket", state: "有限支持", detail: "WebSocket 使用 /relay/v1/ws/，HTTP 历史事件使用 /relay/v1/events/，需要 events:read scope；此功能不是官方 QQ Gateway 长连接。" },
   { icon: Radio, title: "OneBot", state: "部分动作可用", detail: "当前仅实现文档列明的有限动作；未实现的动作返回明确错误，不承诺完整 OneBot 兼容。" },
   { icon: ShieldCheck, title: "管理 API", state: "Session + CSRF", detail: "管理接口使用同源 Session 与 CSRF；数据面接口使用 Bearer Key，并在每次请求校验 BotGrant 与 revision。" },
 ];

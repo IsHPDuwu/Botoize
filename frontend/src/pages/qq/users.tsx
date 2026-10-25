@@ -13,7 +13,7 @@ export function UsersPage() {
   if (error && !data) return <QueryError onRetry={mutate} retrying={isValidating} />;
   return (
     <div className="flex min-h-0 flex-col gap-5 pb-8">
-      <PageHeader title="Owner 用户管理" description="当前后端只提供 Owner 可见的用户列表；邀请、停用和角色修改尚未开放。" actions={<Button variant="outline" onClick={() => void mutate()} disabled={isValidating}><RefreshCw className={isValidating ? "animate-spin" : ""} />刷新</Button>} />
+      <PageHeader title="Owner 用户管理" description="此页面展示用户列表；邀请与停用使用管理 API，Owner 角色仅通过控制台或数据库维护。" actions={<Button variant="outline" onClick={() => void mutate()} disabled={isValidating}><RefreshCw className={isValidating ? "animate-spin" : ""} />刷新</Button>} />
       <Card>
         <CardHeader><CardTitle className="flex items-center gap-2"><Users className="size-4" />控制台用户</CardTitle><CardDescription>不会通过此页面修改 Owner 角色或账号状态。</CardDescription></CardHeader>
         <CardContent>
