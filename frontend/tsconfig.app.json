@@ -1,0 +1,44 @@
+{
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
+    "target": "ES2022",
+    "useDefineForClassFields": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "types": ["vite/client", "vitest/globals"],
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+
+    /* Bundler mode */
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "jsx": "react-jsx",
+
+    /* Linting */
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "erasableSyntaxOnly": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true
+  },
+  "include": [
+    "src/App.tsx",
+    "src/main.tsx",
+    "src/components/**/*.tsx",
+    "src/hooks/**/*.tsx",
+    "src/lib/**/*.ts",
+    "src/lib/**/*.tsx",
+    "src/pages/qq/**/*.tsx",
+    "src/pages/qq-login.tsx",
+    "src/i18n.ts",
+    "src/types/**/*.d.ts"
+  ],
+  "exclude": ["src/legacy-fluent/**", "src/pages/admin-dashboard.tsx", "src/pages/api-keys.tsx", "src/pages/billing-plans.tsx", "src/pages/custom-transforms.tsx", "src/pages/dashboard.tsx", "src/pages/groups.tsx", "src/pages/login.tsx", "src/pages/model-marketplace.tsx", "src/pages/model-pricing.tsx", "src/pages/payments.tsx", "src/pages/playground.tsx", "src/pages/providers.tsx", "src/pages/request-logs.tsx", "src/pages/settings.tsx", "src/pages/user-settings.tsx", "src/pages/users.tsx", "src/pages/wallet.tsx"]
+}
