@@ -22,6 +22,23 @@ def test_official_origin_uses_explicit_operator_proxy(settings):
     assert proxy.proxies == {'https': 'http://127.0.0.1:7890'}
 
 
+def test_official_transport_reads_standard_https_proxy_environment(settings, monkeypatch):
+    from urllib.request import Request, ProxyHandler, build_opener
+    settings.QQ_HTTP_PROXY = None
+    monkeypatch.delenv('https_proxy', raising=False)
+    monkeypatch.setenv('HTTPS_PROXY', 'http://127.0.0.1:7890')
+    observed = []
+    def make_opener(*handlers):
+        opener = build_opener(*handlers)
+        observed.extend(handler for handler in opener.handlers if isinstance(handler, ProxyHandler))
+        mock = MagicMock()
+        return mock
+    with patch('core.official.build_opener', side_effect=make_opener):
+        with open_upstream(Request('https://api.bot.qq.com/users/@me')):
+            pass
+    assert observed[0].proxies['https'] == 'http://127.0.0.1:7890'
+
+
 def test_custom_origin_does_not_use_operator_proxy(settings):
     from urllib.request import Request
     settings.QQ_HTTP_PROXY = 'http://127.0.0.1:7890'

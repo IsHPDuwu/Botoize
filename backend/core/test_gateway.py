@@ -106,6 +106,39 @@ def test_discovery_enforces_session_start_budget(worker):
         assert gateway_url(bot, resume=True) == 'wss://api.bot.qq.com/websocket/'
 
 
+@pytest.mark.parametrize('host', ['api.bot.qq.com', 'api.sgroup.qq.com'])
+def test_discovery_accepts_only_known_official_gateway_hosts(worker, host, settings):
+    settings.QQ_GATEWAY_HOST = None
+    bot, _, _ = worker
+    url = f'wss://{host}/websocket'
+    body = json.dumps({'url': url, 'session_start_limit': {'remaining': 1, 'max_concurrency': 1}}).encode()
+    with patch('core.gateway.get_gateway', return_value=(200, body, {})):
+        assert gateway_url(bot) == url
+
+
+def test_gateway_canonical_host_override_is_restricted(worker, settings):
+    bot, _, _ = worker
+    body = b'{"url":"wss://api.sgroup.qq.com/websocket/","session_start_limit":{"remaining":1,"max_concurrency":1}}'
+    with patch('core.gateway.get_gateway', return_value=(200, body, {})):
+        settings.QQ_GATEWAY_HOST = 'api.bot.qq.com'
+        assert gateway_url(bot) == 'wss://api.bot.qq.com/websocket/'
+        settings.QQ_GATEWAY_HOST = 'evil.example.com'
+        with pytest.raises(GatewayError):
+            gateway_url(bot)
+
+
+def test_bounded_gateway_skips_other_targets_without_persisting_them(worker):
+    bot, _, token = worker
+    dispatch(bot, token, ready(), allowed_group='allowed')
+    other = {'op':0,'s':2,'t':'GROUP_AT_MESSAGE_CREATE','id':'other-event','d':{'group_openid':'other'}}
+    dispatch(bot, token, other, allowed_group='allowed')
+    assert not Event.objects.exists()
+    assert GatewaySession.objects.get(bot=bot).sequence == 2
+    accepted = {**other, 's':3, 'id':'allowed-event', 'd':{'group_openid':'allowed'}}
+    dispatch(bot, token, accepted, allowed_group='allowed')
+    assert Event.objects.get().event_id == 'allowed-event'
+
+
 @pytest.mark.parametrize('resume', [False, True])
 def test_official_identify_and_resume_wire_contract(worker, resume):
     bot, _, token = worker
@@ -122,7 +155,7 @@ def test_official_identify_and_resume_wire_contract(worker, resume):
             consume_connection(bot, token)
     packet = json.loads(socket.send.call_args.args[0])
     from django.conf import settings
-    assert connection.call_args.kwargs['proxy'] == settings.QQ_HTTP_PROXY
+    assert connection.call_args.kwargs['proxy'] == (settings.QQ_HTTP_PROXY or True)
     assert packet['d']['token'] == 'QQBot test-token'
     assert packet['op'] == (6 if resume else 2)
     if resume:

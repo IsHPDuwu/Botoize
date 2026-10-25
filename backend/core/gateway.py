@@ -5,7 +5,7 @@ import platform
 import time
 import uuid
 from datetime import timedelta
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 from django.db import transaction
 from django.conf import settings
@@ -19,6 +19,7 @@ from .official import OfficialCredentialError, access_token, get_gateway
 
 LEASE_SECONDS = 60
 FATAL_CLOSE_CODES = {4001, 4002, 4010, 4011, 4012, 4013, 4014, 4914, 4915}
+OFFICIAL_GATEWAY_HOSTS = {'api.bot.qq.com', 'api.sgroup.qq.com'}
 
 
 class GatewayError(Exception):
@@ -84,7 +85,7 @@ def clear_session(bot, token):
 
 
 @transaction.atomic
-def dispatch(bot, token, payload):
+def dispatch(bot, token, payload, allowed_group=None):
     # Same lock order as ingestion and claim: Bot, then GatewaySession.
     current = Bot.objects.select_for_update().get(pk=bot.pk)
     row = GatewaySession.objects.select_for_update().get(bot=bot)
@@ -106,7 +107,11 @@ def dispatch(bot, token, payload):
             raise GatewayError('Gateway dispatch before READY or Resume')
         if row.sequence is not None and sequence <= row.sequence:
             return row
-        if event_type != 'RESUMED':
+        data = payload.get('d')
+        target_allowed = allowed_group is None or (
+            event_type in {'GROUP_AT_MESSAGE_CREATE', 'GROUP_MESSAGE_CREATE'}
+            and isinstance(data, dict) and data.get('group_openid') == allowed_group)
+        if event_type != 'RESUMED' and target_allowed:
             # Require the documented upstream event ID; never manufacture an
             # official event or acknowledge an event that failed durable ingestion.
             ingest_event(current, payload)
@@ -123,7 +128,7 @@ def gateway_url(bot, resume=False):
         data = json.loads(raw)
         url = data['url']
         parts = urlsplit(url)
-        if (parts.scheme != 'wss' or parts.hostname != 'api.bot.qq.com'
+        if (parts.scheme != 'wss' or parts.hostname not in OFFICIAL_GATEWAY_HOSTS
                 or parts.port not in (None, 443) or parts.username or parts.password
                 or parts.fragment or parts.query or parts.path not in {'/websocket', '/websocket/'}):
             raise ValueError
@@ -135,6 +140,10 @@ def gateway_url(bot, resume=False):
             raise GatewayError('Gateway session start budget exhausted')
     except (ValueError, TypeError, KeyError, AttributeError):
         raise GatewayError('Gateway discovery returned an invalid response') from None
+    if settings.QQ_GATEWAY_HOST:
+        if settings.QQ_GATEWAY_HOST not in OFFICIAL_GATEWAY_HOSTS:
+            raise GatewayError('Configured Gateway host is not an official endpoint')
+        url = urlunsplit(('wss', settings.QQ_GATEWAY_HOST, parts.path, '', ''))
     return url
 
 
@@ -152,7 +161,7 @@ def send(socket, opcode, data):
     socket.send(json.dumps({'op': opcode, 'd': data}, separators=(',', ':')))
 
 
-def consume_connection(bot, token):
+def consume_connection(bot, token, allowed_group=None, on_status=None):
     renew(bot, token)
     row = GatewaySession.objects.get(bot=bot, lease_token=token)
     resume = bool(row.session_id and row.sequence is not None)
@@ -160,7 +169,7 @@ def consume_connection(bot, token):
     credential = 'QQBot ' + access_token(bot)
     renew(bot, token)
     with connect(url, open_timeout=10, close_timeout=5, max_size=1048576,
-                 max_queue=16, ping_interval=None, proxy=settings.QQ_HTTP_PROXY) as socket:
+                 max_queue=16, ping_interval=None, proxy=settings.QQ_HTTP_PROXY or True) as socket:
         hello = decode(socket.recv(timeout=10))
         data = hello.get('d')
         interval = data.get('heartbeat_interval') if isinstance(data, dict) else None
@@ -193,9 +202,13 @@ def consume_connection(bot, token):
                 continue
             opcode = payload['op']
             if opcode == 0:
-                row = dispatch(bot, token, payload)
+                row = dispatch(bot, token, payload, allowed_group=allowed_group)
+                if on_status and payload.get('t') in {'READY', 'RESUMED'}:
+                    on_status('Gateway ' + payload['t'])
             elif opcode == 11:
                 awaiting_ack = False
+                if on_status:
+                    on_status('Gateway heartbeat ACK')
             elif opcode == 1:
                 send(socket, 1, row.sequence)
             elif opcode == 7:

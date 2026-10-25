@@ -45,6 +45,7 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument('--send', action='store_true', help='Send exactly one plain-text test message to the approved group')
         parser.add_argument('--listen-seconds', type=int, default=20)
+        parser.add_argument('--http-only', action='store_true', help='Verify HTTP without a Gateway session')
 
     def handle(self, *args, **options):
         if not 0 <= options['listen_seconds'] <= 60:
@@ -96,6 +97,10 @@ class Command(BaseCommand):
                 if identity.get('err_code') == 40023002:
                     report['official_identity_reason'] = 'source_ip_not_allowlisted'
                     raise OfficialCredentialError('Official source IP not allowlisted', status=status, code=identity.get('code'))
+            if options['http_only']:
+                if options['send']:
+                    self.verify_send(client, suffix, None, report)
+                return
             report['network_stage'] = 'gateway'
             websocket_url = gateway_url(bot)
             auth = 'QQBot ' + access_token(bot)
@@ -105,7 +110,7 @@ class Command(BaseCommand):
             received = 0
             report['gateway_ready'] = False
             with connect(websocket_url, open_timeout=10, close_timeout=5, max_size=1048576,
-                         max_queue=16, ping_interval=None, proxy=settings.QQ_HTTP_PROXY) as socket:
+                         max_queue=16, ping_interval=None, proxy=settings.QQ_HTTP_PROXY or True) as socket:
                 hello = decode(socket.recv(timeout=10))
                 report['gateway_hello'] = hello['op'] == 10
                 interval = hello.get('d', {}).get('heartbeat_interval', 30000) / 1000
@@ -148,7 +153,7 @@ class Command(BaseCommand):
             report['target_events_received'] = received
             if session_id and sequence is not None:
                 with connect(websocket_url, open_timeout=10, close_timeout=5, max_size=1048576,
-                             ping_interval=None, proxy=settings.QQ_HTTP_PROXY) as resumed:
+                             ping_interval=None, proxy=settings.QQ_HTTP_PROXY or True) as resumed:
                     hello = decode(resumed.recv(timeout=10))
                     send(resumed, 6, {'token': auth, 'session_id': session_id, 'seq': sequence})
                     for _ in range(5):
@@ -160,24 +165,7 @@ class Command(BaseCommand):
                             report['gateway_resumed'] = False
                             break
             if options['send']:
-                report['network_stage'] = 'send'
-                payload = {'content': 'QQ Bot Proxy 连通性验收测试（仅此一条）', 'msg_type': 0}
-                if context_id:
-                    payload.update(msg_id=context_id, msg_seq=1)
-                response = client.post(f'/qq/v2/groups/{TARGET}/messages', payload, format='json',
-                                       HTTP_IDEMPOTENCY_KEY='live-acceptance-' + suffix)
-                report['send_http'] = response.status_code
-                try:
-                    result = json.loads(response.content)
-                except ValueError:
-                    result = {}
-                report['send_message_id_returned'] = bool(result.get('id'))
-                report['send_official_code'] = result.get('code', result.get('err_code'))
-                report['send_used_message_context'] = bool(context_id)
-                if 200 <= response.status_code < 300:
-                    replay = client.post(f'/qq/v2/groups/{TARGET}/messages', payload, format='json',
-                                         HTTP_IDEMPOTENCY_KEY='live-acceptance-' + suffix)
-                    report['send_idempotent_replay'] = replay.get('Idempotency-Replayed') == 'true'
+                self.verify_send(client, suffix, context_id, report)
             page = client.get('/relay/v1/events/').data
             report['target_event_relay_count'] = len(page.get('events', []))
         except (OfficialCredentialError, GatewayError, ConnectionClosed, OSError, TimeoutError, ValueError) as exc:
@@ -203,4 +191,24 @@ class Command(BaseCommand):
             if provider:
                 provider.delete()
             report['temporary_resources_cleaned'] = True
-        self.stdout.write(json.dumps(report, ensure_ascii=True, sort_keys=True))
+            self.stdout.write(json.dumps(report, ensure_ascii=True, sort_keys=True))
+
+    def verify_send(self, client, suffix, context_id, report):
+        report['network_stage'] = 'send'
+        payload = {'content': 'QQ Bot Proxy 连通性验收测试（仅此一条）', 'msg_type': 0}
+        if context_id:
+            payload.update(msg_id=context_id, msg_seq=1)
+        path = f'/qq/v2/groups/{TARGET}/messages'
+        headers = {'HTTP_IDEMPOTENCY_KEY': 'live-acceptance-' + suffix}
+        response = client.post(path, payload, format='json', **headers)
+        report['send_http'] = response.status_code
+        try:
+            result = json.loads(response.content)
+        except ValueError:
+            result = {}
+        report['send_message_id_returned'] = bool(result.get('id'))
+        report['send_official_code'] = result.get('code', result.get('err_code'))
+        report['send_used_message_context'] = bool(context_id)
+        if 200 <= response.status_code < 300:
+            replay = client.post(path, payload, format='json', **headers)
+            report['send_idempotent_replay'] = replay.get('Idempotency-Replayed') == 'true'

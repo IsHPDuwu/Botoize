@@ -16,6 +16,8 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument('--bot', type=int, required=True)
         parser.add_argument('--intents', type=int, required=True)
+        parser.add_argument('--allowed-group', help='Optional exact group OpenID allowlist for bounded acceptance')
+        parser.add_argument('--status', action='store_true', help='Print redacted READY/RESUMED/heartbeat statuses')
 
     def handle(self, *args, **options):
         try:
@@ -23,10 +25,14 @@ class Command(BaseCommand):
         except (Bot.DoesNotExist, GatewayError) as error:
             raise CommandError(str(error)) from None
         failures = 0
+        def status(message):
+            self.stdout.write(message)
+            self.stdout.flush()
         try:
             while True:
                 try:
-                    consume_connection(bot, token)
+                    consume_connection(bot, token, allowed_group=options['allowed_group'],
+                                       on_status=status if options['status'] else None)
                 except LeaseLost:
                     raise
                 except ConnectionClosed as error:
