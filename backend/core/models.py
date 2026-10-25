@@ -129,3 +129,9 @@ class ApiCallAudit(models.Model):
     status_code = models.PositiveSmallIntegerField()
     duration_ms = models.PositiveIntegerField()
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+
+class ThrottleCounter(models.Model):
+    key = models.CharField(max_length=64, primary_key=True)
+    window_started_at = models.DateTimeField(db_index=True)
+    count = models.PositiveIntegerField(default=0)

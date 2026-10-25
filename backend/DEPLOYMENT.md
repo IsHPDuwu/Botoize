@@ -6,7 +6,7 @@
 2. 运行 `uv run --locked python manage.py migrate`，再运行 `uv run --locked python manage.py check --deploy`。安全警告必须结合实际 TLS/反代配置解决，不能直接忽略。
 3. 使用 `uv run --locked uvicorn config.asgi:application --host 127.0.0.1 --port 8000 --lifespan off --no-proxy-headers --ws-max-size 1048576`。
 4. 前端在 frontend 运行 `pnpm install --frozen-lockfile`、`pnpm build`。反向代理提供 dist 静态文件，并将 `/api/`、`/qq/`、`/onebot/`、`/relay/`、`/webhooks/`、`/health/` 转发到后端；允许 `/relay/v1/ws/` 的 Upgrade。其他静态路由回落 index.html。
-5. 生产必须配置 HTTPS、正确的 ALLOWED_HOSTS、CSRF_TRUSTED_ORIGINS 与安全 Cookie。不要盲目信任客户端转发头；入口须限制请求正文大小、连接数和登录尝试频率。该项目尚未内置跨实例登录限流。
+5. 生产必须配置 HTTPS、正确的 ALLOWED_HOSTS、CSRF_TRUSTED_ORIGINS 与安全 Cookie。不要盲目信任客户端转发头；入口仍须限制请求正文大小和连接数。应用内数据库限流按 UTC/数据库时间使用 60 秒固定窗口：登录每来源地址 10 次、管理 API 每用户 120 次、Bearer 每 Key 120 次/每 Admin 300 次/每 Bot 600 次；重复调度 `manage.py cleanup_throttles` 清理过期计数。确认可信反代正确改写 REMOTE_ADDR，否则登录按直连源地址共享额度。
 6. 使用服务管理器保持 ASGI 服务运行；为 HTTP 回调单独建立重复调度，执行 `uv run --locked python manage.py deliver_outbox --limit 20`。可多工作进程竞争，但需自行控制全局并发及官方配额。每次命令是有限批次，不会常驻。
 
 调度频率决定重试延迟与吞吐；每分钟一次、每批 20 条的容量至多约 20 条/分钟，网络超时还会降低容量。不要把两秒退避理解成两秒内必定重试。定时任务应使用 backend 为工作目录和该项目环境。
@@ -15,8 +15,8 @@
 
 - 在页面「订阅端点」选择具有 events:read 的 Bot，输入 HTTPS 地址并确认密码；也可用 `subscription set GRANT_ID URL` 控制台命令配置。
 - URL 配置允许域名，但真正发送时解析所有地址，只允许公共可路由 IP；混合公私地址也拒绝。连接固定到验证过的 IP，TLS 按原域名校验证书，不跟随重定向，也不读取环境代理。
-- 回调正文为官方原始事件 JSON，`X-QQ-Proxy-Delivery-ID` 是稳定 Outbox ID。下游必须持久化去重，并仅在已可靠接受后返回 2xx。回调没有共享密钥签名，接收端如需可信发送方认证，应在生产入口使用受控出口 IP 白名单；当前不提供签名式 Webhook 认证。
-- 非 2xx、TLS/DNS/网络错误进入退避。默认最多领取五次；连续崩溃也计入预算。失败记录不会自动无限重放，投递页面可查看 failed；尚无人工重放 API。
+- 回调正文为紧凑 UTF-8 JSON，`X-QQ-Proxy-Delivery-ID` 是稳定 Outbox ID；`X-QQ-Proxy-Timestamp` 为 Unix 秒，`X-QQ-Proxy-Signature` 格式为 `v1=<hex>`，计算规则为 `HMAC-SHA256(secret, timestamp + "." + delivery_id + "." + exact_body_bytes)`。订阅随机密钥由平台加密保存，不向订阅 API 回传；接收端应在有限时间窗内验签并持久化 delivery ID 去重，仅在已可靠接受后返回 2xx。订阅重新保存会轮换签名密钥，需同步接收端。
+- 非 2xx、TLS/DNS/网络错误进入退避。默认最多领取五次；连续崩溃也计入预算。每次尝试有持久历史（HTTP 状态、固定错误分类、时间），`POST /api/v1/deliveries/{id}/replay/` 可让 Owner 或当前授权 Admin 重放 delivered/failed 任务；每次会创建新的 attempt generation、重置当前预算并写审计，可能重复发送，下游必须幂等去重。
 - 同一授权版本下创建或更改订阅会影响尚未完成的历史快照，不仅限于新事件。授权版本变化后旧快照不复活，订阅须重新保存；禁用后不再新领取，但无法撤回已经发出的网络请求。
 - 队列采用至少一次语义，不能承诺恰好一次。HTTP 拉取和 WS 游标独立于推送状态，不能互相当作业务确认。
 

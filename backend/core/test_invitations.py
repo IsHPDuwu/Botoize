@@ -2,10 +2,12 @@ from datetime import timedelta
 
 import pytest
 from django.utils import timezone
+from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.test import APIClient
 
 from .invitations import accept_invitation, create_invitation
-from .models import AuditLog, Invitation, User
+from .models import AuditLog, Bot, BotGrant, Invitation, User
+from .services import authorize, issue_key
 
 pytestmark = pytest.mark.django_db
 PASSWORD = 'invitation-password'
@@ -68,3 +70,34 @@ def test_accept_endpoint_is_public_and_rejects_unknown_fields(owner):
     }, format='json')
     assert response.status_code == 201
     assert response.json()['role'] == 'Admin'
+
+
+def test_owner_can_activate_and_deactivate_admin_but_not_change_roles(owner):
+    bot = Bot.objects.create(name='lifecycle-bot', app_id='lifecycle-bot', encrypted_secret='unused')
+    admin = User.objects.create_user('lifecycle-admin', password='lifecycle-password')
+    grant = BotGrant.objects.create(user=admin, bot=bot, scopes=['query:read'])
+    _, token = issue_key(admin, bot, 'lifecycle', ['query:read'])
+    client = APIClient()
+    client.force_login(owner)
+    response = client.patch(f'/api/v1/users/{admin.pk}/', {
+        'is_active': False, 'password': PASSWORD,
+    }, format='json')
+    assert response.status_code == 200 and response.json()['is_active'] is False
+    with pytest.raises(AuthenticationFailed):
+        authorize(token)
+    grant.refresh_from_db()
+    assert grant.revision == 2
+    assert client.patch(f'/api/v1/users/{owner.pk}/', {
+        'is_active': False, 'password': PASSWORD,
+    }, format='json').status_code == 404
+    assert client.patch(f'/api/v1/users/{admin.pk}/', {
+        'role': 'Owner', 'is_active': True, 'password': PASSWORD,
+    }, format='json').status_code == 400
+    response = client.patch(f'/api/v1/users/{admin.pk}/', {
+        'is_active': True, 'password': PASSWORD,
+    }, format='json')
+    assert response.status_code == 200 and response.json()['is_active'] is True
+    with pytest.raises(AuthenticationFailed):
+        authorize(token)
+    assert AuditLog.objects.filter(action='user.deactivate', target=admin.username).exists()
+    assert grant.is_active

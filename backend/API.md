@@ -43,7 +43,7 @@ DB_PASSWORD、DB_HOST、DB_PORT、DB_SSLMODE=require。
 `owner revoke USERNAME` 降为 Admin，事务内拒绝撤销最后有效 Owner。
 所有命令在数据库单例行上写锁串行化。SQLite 仅用于开发；PostgreSQL 多进程竞争
 未在本次测试中验证。没有网页 Owner 用户管理/停用/删除接口，也不挂载 Django admin。
-Admin 账号暂由可信控制台通过 ORM 创建，默认 role=Admin；邀请流程未实现。
+Owner 可通过 `POST /api/v1/invitations/` 创建一次性、72 小时默认有效的 Admin 邀请，明文 token 仅创建响应展示；公开 `POST /api/v1/invitations/accept/` 接受后固定创建 Admin，token 摘要存储且不能重复使用。邀请列表只供 Owner 查看。
 直接 SQL/ORM 修改不受命令保护，属于运维应急边界。
 
 ## HTTP 契约
@@ -57,6 +57,7 @@ Admin 账号暂由可信控制台通过 ORM 创建，默认 role=Admin；邀请�
 - GET `/api/v1/auth/me/`；POST `/api/v1/auth/logout/`。
 - GET `/api/v1/bots/`：Owner 全部，Admin 当前有效 Grant 的有效 Bot。
 - POST `/api/v1/bots/`：Owner，name,app_id,secret,password；secret 仅加密写入，不返回。
+- PATCH `/api/v1/bots/{id}/`：Owner，password 及可选 name、app_id、secret、is_active。app_id/secret 轮换会递增 Bot 授权 revision 并撤销该 Bot 的现有 Key；停用/启用也递增 revision，secret 永不返回。
 - GET `/api/v1/grants/`：Owner 全局分配。
 - POST `/api/v1/grants/`：Owner，user,bot,scopes,password，可选 is_active。
   更新同一分配递增 revision，使原 Key 永久失效，即使重新授权也不复活。
@@ -64,6 +65,7 @@ Admin 账号暂由可信控制台通过 ORM 创建，默认 role=Admin；邀请�
 - POST `/api/v1/keys/`：bot,name,scopes,password，可选 expires_at（ISO 8601）。
   必须有显式有效 BotGrant，包括 Owner；201 响应的 token 仅此一次展示。
 - POST `/api/v1/keys/{id}/revoke/`：仅自己，password。
+- POST `/api/v1/keys/{id}/rotate/`：仅自己，password，可选 name、scopes、expires_at；旧 Key 立即撤销，新 token 仅响应展示一次且保持原 Bot 绑定。
 - POST `/api/v1/owner/keys/{id}/revoke/`：Owner 可撤销他人 Key，password。
 - GET `/api/v1/my-grants/`：自己的当前有效 Bot、scopes 与 revision。
 - GET `/api/v1/subscriptions/`：自己的 HTTP 订阅及 is_current，不返回其他用户配置。
@@ -72,6 +74,9 @@ Admin 账号暂由可信控制台通过 ORM 创建，默认 role=Admin；邀请�
 - GET `/api/v1/events/?before=CURSOR`：已入库事件，最多 50 条。
 - GET `/api/v1/deliveries/?before=CURSOR`：真实投递状态、尝试次数、重试与租约时间，最多 50 条。
   Owner 全局可见，Admin 仅见自身当前版本且具有 events:read 的授权快照。
+- GET `/api/v1/deliveries/{id}/attempts/`：该投递的 generation、逐次状态、HTTP status、固定错误分类和时间；按 Owner/Admin 可见性过滤。
+- POST `/api/v1/deliveries/{id}/replay/`：password；Owner 或当前仍拥有该 Bot `events:read`、当前 revision、有效订阅的 Admin 可用。返回 202 和重复投递警告，重放会新建 generation。
+- GET `/api/v1/api-calls/?before=CURSOR`：数据面调用审计；Owner 全局、Admin 仅自身。记录 request_id、Bot/Key、路由模板、状态和耗时，不记录 body、Authorization 或 secret。
 
 写接口严格拒绝未登记字段。没有修改 Key 的接口，因此不能换绑 Bot/user。
 管理 API 未认证为 403（DRF Session 语义），不可见对象为 404。
@@ -96,8 +101,8 @@ scope 登记不表示所有同类官方操作均已实现。统一 services.auth
 pytest.ini 指向独立 test_settings（测试专用 SQLite、
 快速密码哈希和固定测试密钥，严禁部署）。初始迁移已提交。
 
-未实现：邀请、配额、登录防爆破、统一 request_id/错误包装、完整 OpenAPI、
-全量官方 API、官方 Gateway、完整 OneBot、跨进程即时失效通知和密钥轮换。
+仍未实现：完整 OpenAPI、全量官方 API、官方 Gateway、完整 OneBot、跨进程即时失效通知。
+已实现数据库固定窗口限流：登录按来源地址、管理 API 按用户、数据面按 Key/Admin/Bot 共享计数；超限返回平台 429 和 Retry-After。`cleanup_throttles` 用于清理过期计数。
 HTTP 查询、队列发送前和 WS 每批次均查询数据库检查授权；不是原子网络撤回，
 已经发出的请求不能撤销，WS 撤权存在轮询间隔。
-审计覆盖 Owner 命令及 Bot/Grant/Key 写操作，不是完整审计平台。
+审计覆盖 Owner 命令、Bot/Grant/Key/邀请/订阅/重放写操作及数据面调用、投递尝试，不记录秘密和请求体；仍不是完整不可抵赖审计平台。

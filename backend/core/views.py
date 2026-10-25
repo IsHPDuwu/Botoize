@@ -22,6 +22,7 @@ from .subscriptions import disable_subscription, set_subscription, subscription_
 from .request_context import DataPlaneAuditMixin
 from .invitations import accept_invitation, create_invitation
 from .replay import replay_delivery
+from .throttle import LIMITS, RateLimitExceeded, bearer_throttle, limit_response, request_ip, throttle
 
 
 def fields(data, allowed, required=()):
@@ -47,6 +48,15 @@ def key_data(key):
     return {'id': key.pk, 'bot': key.bot_id, 'name': key.name, 'prefix': key.prefix, 'scopes': key.scopes, 'expires_at': key.expires_at, 'revoked_at': key.revoked_at, 'grant_revision': key.grant_revision}
 
 
+class ManagementView(APIView):
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        if not request.path.startswith('/api/v1/') or request.path.startswith(('/api/v1/auth/', '/api/v1/invitations/accept/')):
+            return
+        if request.user.is_authenticated and not throttle('management', request.user.pk, limit=LIMITS['management']):
+            raise RateLimitExceeded()
+
+
 class Health(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
@@ -69,6 +79,8 @@ class Auth(APIView):
         # DRF normally skips CSRF for anonymous sessions; login must not.
         SessionAuthentication().enforce_csrf(request)
         if action == 'login':
+            if not throttle('login', request_ip(request), limit=LIMITS['login']):
+                return limit_response()
             fields(request.data, ['username', 'password'], ['username', 'password'])
             user = authenticate(request, username=request.data['username'], password=request.data['password'])
             if user is None:
@@ -82,7 +94,7 @@ class Auth(APIView):
         raise ValidationError('Unknown auth action')
 
 
-class Bots(APIView):
+class Bots(ManagementView):
     def get(self, request):
         bots = Bot.objects.all()
         if request.user.role != 'Owner':
@@ -130,13 +142,39 @@ class Bots(APIView):
         return Response(bot_data(bot))
 
 
-class Users(APIView):
+class Users(ManagementView):
     def get(self, request):
         owner(request)
         return Response(list(User.objects.order_by('username').values('id', 'username', 'role', 'is_active')))
 
 
-class Invitations(APIView):
+class UserLifecycle(ManagementView):
+    @transaction.atomic
+    def patch(self, request, pk):
+        owner(request)
+        fields(request.data, ['is_active', 'password'], ['is_active', 'password'])
+        reauthenticate(request)
+        if type(request.data['is_active']) is not bool:
+            raise ValidationError({'is_active': 'Boolean required'})
+        user = get_object_or_404(User.objects.select_for_update(), pk=pk, role=User.Role.ADMIN)
+        if user.is_active != request.data['is_active']:
+            user.is_active = request.data['is_active']
+            user.save(update_fields=['is_active'])
+            if not user.is_active:
+                grants = BotGrant.objects.select_for_update().filter(user=user)
+                for grant in grants:
+                    grant.revision += 1
+                    grant.save(update_fields=['revision'])
+                ApiKey.objects.filter(user=user, revoked_at__isnull=True).update(revoked_at=timezone.now())
+            AuditLog.objects.create(
+                actor=request.user.username,
+                action='user.activate' if user.is_active else 'user.deactivate',
+                target=user.username,
+            )
+        return Response({'id': user.pk, 'username': user.username, 'role': user.role, 'is_active': user.is_active})
+
+
+class Invitations(ManagementView):
     def get(self, request):
         owner(request)
         rows = Invitation.objects.order_by('-pk')
@@ -181,7 +219,7 @@ class AcceptInvitation(APIView):
         return Response({'id': user.pk, 'username': user.username, 'role': user.role}, status=201)
 
 
-class Grants(APIView):
+class Grants(ManagementView):
     def get(self, request):
         owner(request)
         return Response(list(BotGrant.objects.values('id', 'user_id', 'bot_id', 'scopes', 'is_active', 'revision')))
@@ -208,13 +246,13 @@ class Grants(APIView):
         return Response({'id': grant.pk, 'revision': grant.revision, 'is_active': active})
 
 
-class MyGrants(APIView):
+class MyGrants(ManagementView):
     def get(self, request):
         grants = BotGrant.objects.filter(user=request.user, is_active=True, bot__is_active=True).select_related('bot')
         return Response([{'bot': bot_data(grant.bot), 'scopes': grant.scopes, 'revision': grant.revision} for grant in grants])
 
 
-class DashboardOverview(APIView):
+class DashboardOverview(ManagementView):
     def get(self, request):
         raw_window = request.query_params.get('window_hours', '24')
         if not raw_window.isascii() or not raw_window.isdigit() or len(raw_window) > 4:
@@ -262,7 +300,7 @@ class DashboardOverview(APIView):
         return response
 
 
-class Subscriptions(APIView):
+class Subscriptions(ManagementView):
     def get(self, request):
         rows = HttpSubscription.objects.filter(grant__user=request.user).select_related('grant__user', 'grant__bot')
         return Response([{
@@ -291,7 +329,7 @@ class Subscriptions(APIView):
         return Response({'id': sub.pk, 'bot': bot_id, 'url': sub.url, 'grant_revision': sub.grant_revision}, status=201)
 
 
-class Keys(APIView):
+class Keys(ManagementView):
     def get(self, request):
         return Response([key_data(k) for k in ApiKey.objects.filter(user=request.user)])
 
@@ -308,7 +346,7 @@ class Keys(APIView):
         return Response({**key_data(key), 'token': token}, status=201)
 
 
-class RevokeKey(APIView):
+class RevokeKey(ManagementView):
     def post(self, request, pk, global_revoke=False):
         fields(request.data, ['password'], ['password'])
         reauthenticate(request)
@@ -324,7 +362,7 @@ class RevokeKey(APIView):
         return Response(status=204)
 
 
-class RotateKey(APIView):
+class RotateKey(ManagementView):
     def post(self, request, pk):
         fields(request.data, ['name', 'scopes', 'expires_at', 'password'], ['password'])
         reauthenticate(request)
@@ -357,6 +395,8 @@ class Bearer(BaseAuthentication):
             raise AuthenticationFailed('Bearer key required')
         key, scopes = authorize(header[1], request.query_params.get('bot_id'))
         request.effective_scopes = scopes
+        if not bearer_throttle(key):
+            raise RateLimitExceeded()
         return key.user, key
 
 
@@ -370,7 +410,7 @@ class Capabilities(APIView):
         return Response({'bot_id': request.auth.bot_id, 'scopes': request.effective_scopes, 'proxy_enabled': bool(operations), 'websocket_enabled': 'events:read' in request.effective_scopes, 'operations': operations})
 
 
-class ManagementEvents(APIView):
+class ManagementEvents(ManagementView):
     def get(self, request):
         before = request.query_params.get('before', '')
         if before and (not before.isascii() or not before.isdigit() or len(before) > 18):
@@ -396,7 +436,7 @@ class ManagementEvents(APIView):
         return response
 
 
-class Deliveries(APIView):
+class Deliveries(ManagementView):
     def get(self, request):
         before = request.query_params.get('before', '')
         if before and (not before.isascii() or not before.isdigit() or len(before) > 18):
@@ -418,7 +458,7 @@ class Deliveries(APIView):
         return response
 
 
-class DeliveryAttempts(APIView):
+class DeliveryAttempts(ManagementView):
     def get(self, request, pk):
         rows = DeliveryAttempt.objects.filter(outbox_id=pk, outbox__grant__user=request.user)
         if request.user.role == 'Owner':
@@ -432,7 +472,7 @@ class DeliveryAttempts(APIView):
         } for row in rows.order_by('generation', 'attempt_number')])
 
 
-class ReplayDelivery(APIView):
+class ReplayDelivery(ManagementView):
     def post(self, request, pk):
         fields(request.data, ['password'], ['password'])
         reauthenticate(request)
@@ -448,7 +488,7 @@ class ReplayDelivery(APIView):
         }, status=202)
 
 
-class ApiCalls(APIView):
+class ApiCalls(ManagementView):
     def get(self, request):
         before = request.query_params.get('before', '')
         if before and (not before.isascii() or not before.isdigit() or len(before) > 18):
