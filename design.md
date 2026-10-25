@@ -4,7 +4,7 @@ description: "QQ 官方机器人中转控制台的 上游风格 React/Vite 界�
 version: "2026-10-25"
 ---
 
-# Bot Proxy 控制台设计规范
+# Botoize 控制台设计规范
 
 本文件只约束界面呈现，不定义页面功能、权限、接口契约或未实现能力。当前控制台采用 `ikaleio/monoize` 的 React/Vite 视觉基线，并以本项目真实 QQ Bot Proxy 内容为准，不复制上游 AI、计费或支付业务。
 
@@ -45,7 +45,7 @@ version: "2026-10-25"
 ### 3.3 资源与授权管理
 
 - [SHOULD] Bot、令牌、授权、用户、订阅等列表采用“标题与创建动作—工具/摘要—列表或表格”的顺序。
-- [MUST] 私密值默认掩码；API token 只在创建成功后展示一次，官方 App Secret 不回显。
+- [MUST] 私密值默认掩码；API token 由所属用户在当前授权有效时显式复制，摘要历史不可恢复；官方 App Secret 不回显。
 - [SHOULD] 列表行或卡片内将名称作为主信息，技术标识、scope、revision 和时间作为辅助信息；低频动作收进菜单或对话框。
 - [MUST] 权限、Owner-only、禁用、已撤销和失效状态同时用文字表达；不可仅用颜色或图标表达。
 - [SHOULD] 编辑和密码确认使用 Dialog；成功、失败和撤销结果使用局部 toast/提示，不清空用户上下文。
@@ -60,7 +60,7 @@ version: "2026-10-25"
 
 ### 3.5 接入与系统说明
 
-- [SHOULD] 用分区卡片说明管理 API、QQ 官方 API、Webhook、relay WebSocket、有限 OneBot/代理能力和后端健康检查。
+- [SHOULD] 用现有分区卡片和横向滚动配置表说明管理 API、QQ 官方 API、Webhook、relay WebSocket、OneBot 11/12 和后端健康检查。两版 ID、HTTP envelope、token 与未支持项明确区分；不能把 QQ 适配器的 endpoint 当作 OneBot 兼容开关。
 - [MUST] 明确健康检查不是 QQ Bot 在线状态；不得将未实现或未联调的能力描述为生产可用。
 - [SHOULD] 官方文档使用外部链接；接入示例保持短小，避免在首屏放入大段协议载荷。
 

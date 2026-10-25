@@ -24,6 +24,7 @@ export default defineConfig(({ mode }) => {
         "/api": { target: apiTarget, changeOrigin: true },
         "/relay": { target: apiTarget, changeOrigin: true, ws: true },
         "/qq": { target: apiTarget, changeOrigin: true },
+        "/onebot": { target: apiTarget, changeOrigin: true, ws: true },
       },
     },
   };
