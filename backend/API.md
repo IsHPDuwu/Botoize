@@ -48,6 +48,8 @@ Owner 可通过 `POST /api/v1/invitations/` 创建一次性、72 小时默认有
 
 ## HTTP 契约
 
+机器可读请求契约：`GET /api/v1/openapi.json`（OpenAPI 3.1）。覆盖当前管理与 relay HTTP 路径、方法、参数、字段白名单、Session/Bearer、CSRF 和密码确认字段；没有嵌入运行时凭据。尚未形式化的成功响应使用开放 schema，不能当作完整响应类型生成来源；官方透传、Webhook 签名和 WS 协议另见对应文档。
+
 所有路径保留尾斜杠。管理接口采用同源 Session，JSON 请求，所有写请求需 CSRF。
 先 GET `/api/v1/auth/csrf/`，再在 `X-CSRFToken` 传返回值并携带 Cookie。
 登录后 CSRF 轮换，应使用登录响应的新 csrfToken。无跨域/CORS 放行。

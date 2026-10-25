@@ -1,8 +1,10 @@
 from django.urls import path, re_path
 from core import views
 from core.webhook import OfficialWebhook
+from core.openapi import openapi_schema
 
 urlpatterns = [
+    path('api/v1/openapi.json', openapi_schema),
     path('health/', views.Health.as_view()),
     path('webhooks/qq/<int:pk>/', OfficialWebhook.as_view()),
     path('api/v1/auth/<str:action>/', views.Auth.as_view()),
