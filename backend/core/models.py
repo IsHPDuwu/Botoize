@@ -80,10 +80,32 @@ class EventOutbox(models.Model):
         indexes = [models.Index(fields=['state', 'id'], name='outbox_scan')]
 
 
+class DeliveryAttempt(models.Model):
+    class State(models.TextChoices):
+        PROCESSING = 'processing'
+        DELIVERED = 'delivered'
+        RETRY = 'retry'
+        FAILED = 'failed'
+        CANCELLED = 'cancelled'
+
+    outbox = models.ForeignKey(EventOutbox, on_delete=models.CASCADE, related_name='delivery_attempts')
+    attempt_number = models.PositiveIntegerField()
+    state = models.CharField(max_length=12, choices=State.choices, default=State.PROCESSING)
+    http_status = models.PositiveSmallIntegerField(null=True, blank=True)
+    error_code = models.CharField(max_length=40, blank=True)
+    started_at = models.DateTimeField(auto_now_add=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['outbox', 'attempt_number'], name='unique_delivery_attempt_number')]
+        indexes = [models.Index(fields=['outbox', 'id'], name='delivery_attempt_scan')]
+
+
 class HttpSubscription(models.Model):
     grant = models.OneToOneField(BotGrant, on_delete=models.CASCADE)
     grant_revision = models.PositiveBigIntegerField()
     url = models.URLField(max_length=2048)
+    encrypted_callback_secret = models.TextField()
     is_active = models.BooleanField(default=True)
     updated_at = models.DateTimeField(auto_now=True)
 

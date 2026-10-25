@@ -1,11 +1,24 @@
 """Console-managed callback configuration. No network requests are made here."""
+import secrets
 from urllib.parse import urlsplit
 
+from cryptography.fernet import Fernet
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
 from django.db import transaction
 
 from .models import AuditLog, BotGrant, HttpSubscription
+
+
+def _encrypt_callback_secret(secret):
+    return Fernet(settings.BOT_ENCRYPTION_KEY.encode()).encrypt(secret.encode('utf-8')).decode()
+
+
+def decrypt_callback_secret(subscription):
+    return Fernet(settings.BOT_ENCRYPTION_KEY.encode()).decrypt(
+        subscription.encrypted_callback_secret.encode(),
+    ).decode('utf-8')
 
 
 def validate_callback(url):
@@ -31,7 +44,12 @@ def set_subscription(grant_id, url, actor='console'):
         raise ValueError('Active events:read grant required')
     subscription, _ = HttpSubscription.objects.update_or_create(
         grant=grant,
-        defaults={'url': url, 'grant_revision': grant.revision, 'is_active': True},
+        defaults={
+            'url': url,
+            'grant_revision': grant.revision,
+            'encrypted_callback_secret': _encrypt_callback_secret(secrets.token_urlsafe(32)),
+            'is_active': True,
+        },
     )
     AuditLog.objects.create(actor=actor, action='subscription.set', target=str(subscription.pk))
     return subscription

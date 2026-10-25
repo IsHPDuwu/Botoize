@@ -1,12 +1,17 @@
 import socket
+import hashlib
+import hmac
+import json
+import time
 from unittest.mock import patch
 
 import pytest
+from rest_framework.test import APIClient
 
 from .delivery import UnsafeDestination, deliver_batch, post_event, resolve_public
 from .events import ingest_event
-from .models import Bot, BotGrant, EventOutbox, User
-from .subscriptions import set_subscription
+from .models import Bot, BotGrant, DeliveryAttempt, EventOutbox, User
+from .subscriptions import decrypt_callback_secret, set_subscription
 
 pytestmark = pytest.mark.django_db
 
@@ -39,21 +44,43 @@ def test_https_pinned_and_redirect_not_followed():
     with patch('core.delivery.resolve_public', return_value='8.8.8.8'), patch('core.delivery.PinnedHTTPSConnection') as cls:
         conn = cls.return_value
         conn.getresponse.return_value.status = 302
-        assert not post_event('https://example.com/path?q=1', {'id': '1'}, 17)
+        assert not post_event('https://example.com/path?q=1', {'id': '1'}, 17, 'secret')
         cls.assert_called_once_with('example.com', '8.8.8.8')
         assert conn.request.call_count == 1
-        assert conn.request.call_args.kwargs['headers']['X-QQ-Proxy-Delivery-ID'] == '17'
+        headers = conn.request.call_args.kwargs['headers']
+        assert headers['X-QQ-Proxy-Delivery-ID'] == '17'
+        body = conn.request.call_args.kwargs['body']
+        expected = hmac.new(
+            b'secret', headers['X-QQ-Proxy-Timestamp'].encode() + b'.17.' + body, hashlib.sha256,
+        ).hexdigest()
+        assert headers['X-QQ-Proxy-Signature'] == 'v1=' + expected
+        assert json.loads(body) == {'id': '1'}
         conn.close.assert_called_once()
+
+
+def test_callback_signature_binds_timestamp_delivery_id_and_body():
+    with patch('core.delivery.resolve_public', return_value='8.8.8.8'), patch('core.delivery.PinnedHTTPSConnection') as cls:
+        cls.return_value.getresponse.return_value.status = 204
+        result = post_event('https://example.com/hook', {'a': 1}, 'delivery-9', 'callback-secret')
+        assert bool(result) and result.status == 204
+        headers = cls.return_value.request.call_args.kwargs['headers']
+        body = cls.return_value.request.call_args.kwargs['body']
+        assert abs(int(headers['X-QQ-Proxy-Timestamp']) - int(time.time())) <= 2
+        message = headers['X-QQ-Proxy-Timestamp'].encode() + b'.delivery-9.' + body
+        expected = hmac.new(b'callback-secret', message, hashlib.sha256).hexdigest()
+        assert hmac.compare_digest(headers['X-QQ-Proxy-Signature'], 'v1=' + expected)
 
 
 def test_delivery_and_dedup():
     _, row = queued()
+    secret = decrypt_callback_secret(row.grant.httpsubscription)
     with patch('core.delivery.post_event', return_value=True) as send:
         assert deliver_batch()['delivered'] == 1
         assert deliver_batch()['claimed'] == 0
-        send.assert_called_once_with('https://example.com/events', row.event.payload, row.pk)
+        send.assert_called_once_with('https://example.com/events', row.event.payload, row.pk, secret)
     row.refresh_from_db()
     assert row.state == 'delivered'
+    assert DeliveryAttempt.objects.get(outbox=row).state == DeliveryAttempt.State.DELIVERED
 
 
 def test_network_failure_retries_without_immediate_loop():
@@ -62,6 +89,16 @@ def test_network_failure_retries_without_immediate_loop():
         assert deliver_batch()['retry_or_failed'] == 1
     row.refresh_from_db()
     assert row.state == 'pending' and row.attempts == 1 and row.available_at
+    assert DeliveryAttempt.objects.get(outbox=row).error_code == 'network_error'
+
+
+def test_http_failure_is_recorded_without_response_body():
+    _, row = queued()
+    with patch('core.delivery.post_event', return_value=type('Result', (), {'__bool__': lambda self: False, 'status': 503})()):
+        assert deliver_batch()['retry_or_failed'] == 1
+    attempt = DeliveryAttempt.objects.get(outbox=row)
+    assert attempt.state == DeliveryAttempt.State.RETRY
+    assert attempt.http_status == 503 and attempt.error_code == 'http_status'
 
 
 def test_unsubscribed_not_claimed():
@@ -102,6 +139,19 @@ def test_delivery_management_isolation():
     other = User.objects.create_user('unrelated')
     client.force_authenticate(other)
     assert client.get('/api/v1/deliveries/').json()['deliveries'] == []
+
+
+def test_delivery_attempt_history_isolated():
+    grant, row = queued()
+    with patch('core.delivery.post_event', return_value=True):
+        deliver_batch()
+    client = APIClient()
+    client.force_authenticate(grant.user)
+    response = client.get(f'/api/v1/deliveries/{row.pk}/attempts/')
+    assert response.status_code == 200 and len(response.json()) == 1
+    other = User.objects.create_user('delivery-history-other')
+    client.force_authenticate(other)
+    assert client.get(f'/api/v1/deliveries/{row.pk}/attempts/').status_code == 404
     client.force_authenticate(grant.user)
     grant.revision += 1
     grant.save()

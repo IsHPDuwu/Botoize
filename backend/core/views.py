@@ -14,7 +14,7 @@ from rest_framework.authentication import BaseAuthentication, SessionAuthenticat
 from rest_framework.permissions import AllowAny
 from rest_framework.exceptions import PermissionDenied, ValidationError, AuthenticationFailed
 from rest_framework import serializers
-from .models import User, Bot, BotGrant, ApiKey, ApiCallAudit, AuditLog, Event, EventOutbox, Invitation
+from .models import User, Bot, BotGrant, ApiKey, ApiCallAudit, AuditLog, DeliveryAttempt, Event, EventOutbox, Invitation
 from .services import authorize, encrypt_secret, issue_key, rotate_key, update_bot, validate_scopes
 from .official import get_self, send_message, MESSAGE_PATH, OfficialCredentialError
 from .models import HttpSubscription
@@ -415,6 +415,20 @@ class Deliveries(APIView):
         response = Response({'deliveries': data, 'has_more': len(page) > 50, 'next_before': str(page[min(len(page), 50) - 1].pk) if page else None})
         response['Cache-Control'] = 'no-store'
         return response
+
+
+class DeliveryAttempts(APIView):
+    def get(self, request, pk):
+        rows = DeliveryAttempt.objects.filter(outbox_id=pk, outbox__grant__user=request.user)
+        if request.user.role == 'Owner':
+            rows = DeliveryAttempt.objects.filter(outbox_id=pk)
+        if not rows.exists():
+            return Response({'detail': 'Not found'}, status=404)
+        return Response([{
+            'id': row.pk, 'attempt_number': row.attempt_number, 'state': row.state,
+            'http_status': row.http_status, 'error_code': row.error_code,
+            'started_at': row.started_at, 'finished_at': row.finished_at,
+        } for row in rows.order_by('attempt_number')])
 
 
 class ApiCalls(APIView):
