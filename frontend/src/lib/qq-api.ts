@@ -113,6 +113,26 @@ export interface DeliveryPage {
   next_before: string | null;
 }
 
+export interface ApiCallRecord {
+  id: number;
+  request_id: string;
+  bot: number | null;
+  api_key: number | null;
+  method: string;
+  path: string;
+  message_type: string;
+  replayed: boolean | null;
+  status_code: number;
+  duration_ms: number;
+  created_at: string;
+}
+
+export interface ApiCallPage {
+  calls: ApiCallRecord[];
+  has_more: boolean;
+  next_before: string | null;
+}
+
 export interface UserSummary {
   id: number;
   username: string;
@@ -249,6 +269,7 @@ export const qqApi = {
   subscriptions: () => management<HttpSubscription[]>("subscriptions/"),
   events: (before?: string) => management<EventPage>(`events/${before ? `?before=${encodeURIComponent(before)}` : ""}`),
   deliveries: (before?: string) => management<DeliveryPage>(`deliveries/${before ? `?before=${encodeURIComponent(before)}` : ""}`),
+  apiCalls: (before?: string) => management<ApiCallPage>(`api-calls/${before ? `?before=${encodeURIComponent(before)}` : ""}`),
   users: () => management<UserSummary[]>("users/"),
   overview: (windowHours: number) => management<DashboardOverview>(`dashboard/overview/?window_hours=${windowHours}`),
 };

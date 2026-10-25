@@ -189,6 +189,8 @@ class ApiCallAudit(models.Model):
     request_id = models.CharField(max_length=64, db_index=True)
     method = models.CharField(max_length=10)
     path = models.CharField(max_length=512)
+    message_type = models.CharField(max_length=32, blank=True)
+    replayed = models.BooleanField(null=True)
     status_code = models.PositiveSmallIntegerField()
     duration_ms = models.PositiveIntegerField()
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)

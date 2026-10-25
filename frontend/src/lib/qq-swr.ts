@@ -2,6 +2,7 @@ import useSWR, { type SWRConfiguration } from "swr";
 import { qqApi } from "./qq-api";
 import type {
   ApiKeyInfo,
+  ApiCallPage,
   BotGrant,
   BotInfo,
   DashboardOverview,
@@ -28,6 +29,7 @@ export const QQ_SWR_KEYS = {
   users: "qq/users",
   events: "qq/events",
   deliveries: "qq/deliveries",
+  apiCalls: "qq/api-calls",
   overview: (windowHours: number) => `qq/overview/${windowHours}`,
 } as const;
 
@@ -59,12 +61,16 @@ export function useQQUsers(config?: SWRConfiguration, enabled = true) {
   return useSWR<UserSummary[]>(enabled ? QQ_SWR_KEYS.users : null, qqApi.users, { ...defaults, ...config });
 }
 
-export function useQQEvents(config?: SWRConfiguration) {
-  return useSWR<EventPage>(QQ_SWR_KEYS.events, () => qqApi.events(), { ...defaults, ...config });
+export function useQQEvents(config?: SWRConfiguration, enabled = true) {
+  return useSWR<EventPage>(enabled ? QQ_SWR_KEYS.events : null, () => qqApi.events(), { ...defaults, ...config });
 }
 
-export function useQQDeliveries(config?: SWRConfiguration) {
-  return useSWR<DeliveryPage>(QQ_SWR_KEYS.deliveries, () => qqApi.deliveries(), { ...defaults, ...config });
+export function useQQDeliveries(config?: SWRConfiguration, enabled = true) {
+  return useSWR<DeliveryPage>(enabled ? QQ_SWR_KEYS.deliveries : null, () => qqApi.deliveries(), { ...defaults, ...config });
+}
+
+export function useQQApiCalls(config?: SWRConfiguration, before?: string, enabled = true) {
+  return useSWR<ApiCallPage>(enabled ? [QQ_SWR_KEYS.apiCalls, before ?? ""] : null, () => qqApi.apiCalls(before), { ...defaults, ...config });
 }
 
 export function useQQOverview(windowHours: number, config?: SWRConfiguration) {

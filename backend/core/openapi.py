@@ -177,7 +177,7 @@ def schema():
         'Subscription': object_schema({'id': INTEGER, 'bot': INTEGER, 'url': {'type': 'string', 'format': 'uri'}, 'is_active': BOOLEAN, 'is_current': BOOLEAN, 'grant_revision': INTEGER}),
         'Interface': object_schema({'interface_type': STRING, 'label': STRING, 'implemented': BOOLEAN}),
         'Attempt': object_schema({'id': INTEGER, 'generation': INTEGER, 'attempt_number': INTEGER, 'state': STRING, 'http_status': {'type': ['integer', 'null']}, 'error_code': STRING, 'started_at': DATE, 'finished_at': DATE}),
-        'ApiCall': object_schema({'id': INTEGER, 'request_id': STRING, 'bot': {'type': ['integer', 'null']}, 'api_key': {'type': ['integer', 'null']}, 'method': STRING, 'path': STRING, 'status_code': INTEGER, 'duration_ms': {'type': 'integer'}, 'created_at': DATE}),
+        'ApiCall': object_schema({'id': INTEGER, 'request_id': STRING, 'bot': {'type': ['integer', 'null']}, 'api_key': {'type': ['integer', 'null']}, 'method': STRING, 'path': STRING, 'message_type': STRING, 'replayed': {'type': ['boolean', 'null']}, 'status_code': INTEGER, 'duration_ms': {'type': 'integer'}, 'created_at': DATE}),
         'Invitation': object_schema({'id': INTEGER, 'expires_at': DATE, 'used_at': DATE, 'accepted_by': {'type': ['integer', 'null']}, 'created_at': DATE}),
         'Quota': object_schema({'id': INTEGER, 'scope': STRING, 'subject_id': {'type': 'integer'}, 'window_seconds': INTEGER, 'limit': {'type': 'integer'}, 'is_active': BOOLEAN, 'used': {'type': 'integer'}, 'resets_at': {'type': 'integer'}}),
         'OfficialResponse': {'description': 'QQ-owned raw JSON response; no normalization or guarantee of upstream success.', 'type': ['object', 'array', 'string', 'number', 'boolean', 'null'], 'additionalProperties': True},

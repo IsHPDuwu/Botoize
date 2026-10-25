@@ -646,6 +646,7 @@ class ApiCalls(ManagementView):
             'calls': [{
                 'id': row.pk, 'request_id': row.request_id, 'bot': row.bot_id,
                 'api_key': row.api_key_id, 'method': row.method, 'path': row.path,
+                'message_type': row.message_type, 'replayed': row.replayed,
                 'status_code': row.status_code, 'duration_ms': row.duration_ms,
                 'created_at': row.created_at,
             } for row in page[:50]],

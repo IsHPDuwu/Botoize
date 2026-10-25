@@ -11,25 +11,44 @@
 
 调度频率决定重试延迟与吞吐；每分钟一次、每批 20 条的容量至多约 20 条/分钟，网络超时还会降低容量。不要把两秒退避理解成两秒内必定重试。定时任务应使用 backend 为工作目录和该项目环境。
 
+### 官方 Gateway 独立进程
+
+由服务管理器为每个 Bot 单独运行 `uv run --locked python manage.py run_gateway --bot BOT_ID --intents BITMASK`，intents 必须按 QQ 已授权事件位显式配置，不默认申请全部权限。
+进程通过官方 `/gateway/bot` 发现地址，只接受 api.bot.qq.com / api.sgroup.qq.com 的 WSS websocket 路径。可用 `QQ_GATEWAY_HOST=api.bot.qq.com` 指定当前文档官方域名；覆盖值同样禁止任意主机。使用官方 Identify、Resume、心跳和 ACK，不提供下游 Gateway 登录能力。
+当前仅运行完整的单分片 `[0,1]`，不声称支持多分片编排；若官方要求扩分片，进程在相应关闭码终止，不能靠多开同一命令解决。
+数据库为每个 Bot 保持 60 秒独占租约，每约 5 秒重新检查 Bot 和凭据；禁用或凭据变化后旧进程退出，由服务管理器重启以获取新配置。
+事件与 Outbox 落库成功后才在同一事务更新 sequence；异常时保留旧断点。业务事件必须有官方 event ID，不伪造 ID 或静默跳过失败事件。
+断线退避重连，丢 ACK 会重连，Invalid Session 清除断点；致命 intents、分片、封禁错误须人工处理。日志不输出令牌或原始载荷。
+Gateway 与 Webhook 同时启用时仅按官方 event ID 去重；不得假设不同来源必有相同 ID，建议单一上游接入方式。
+协议来源：QQ 官方 `dev-prepare/interface-framework/event-emit.html` 与 `openapi/wss/shard_url_get.html`，2026-10-25 核对。真实 Bot 已通过 READY、心跳 ACK、worker 中断后 RESUMED；生产容量与 PostgreSQL 恢复验收仍未完成。`--allowed-group OPENID` 可严格限制验收入库范围，`--status` 仅打印脱敏连接状态。
+
 ## HTTP 事件回调
 
-- 在页面「订阅端点」选择具有 events:read 的 Bot，输入 HTTPS 地址并确认密码；也可用 `subscription set GRANT_ID URL` 控制台命令配置。
+- 在页面「订阅端点」选择具有 events:read 的 Bot，输入 HTTPS 地址与回调密钥；非登录操作不再次要求密码。也可用 `subscription set GRANT_ID URL` 控制台命令配置。
 - URL 配置允许域名，但真正发送时解析所有地址，只允许公共可路由 IP；混合公私地址也拒绝。连接固定到验证过的 IP，TLS 按原域名校验证书，不跟随重定向，也不读取环境代理。
-- 回调正文为紧凑 UTF-8 JSON，`X-QQ-Proxy-Delivery-ID` 是稳定 Outbox ID；`X-QQ-Proxy-Timestamp` 为 Unix 秒，`X-QQ-Proxy-Signature` 格式为 `v1=<hex>`，计算规则为 `HMAC-SHA256(secret, timestamp + "." + delivery_id + "." + exact_body_bytes)`。订阅随机密钥由平台加密保存，不向订阅 API 回传；接收端应在有限时间窗内验签并持久化 delivery ID 去重，仅在已可靠接受后返回 2xx。订阅重新保存会轮换签名密钥，需同步接收端。
+- 回调正文为紧凑 UTF-8 JSON，`X-QQ-Proxy-Delivery-ID` 是稳定 Outbox ID；`X-QQ-Proxy-Timestamp` 为 Unix 秒，`X-QQ-Proxy-Signature` 格式为 `v1=<hex>`，计算规则为 `HMAC-SHA256(secret, timestamp + "." + delivery_id + "." + exact_body_bytes)`。密钥加密保存且不回传；通过 API 的 callback_secret 配置接收端已知的 32–256 字符密钥。普通保存保留旧密钥，只有显式传新密钥才轮换；首次省略则随机生成，但接收端无法取得该随机值，实际验签应显式配置。仅在持久化去重与可靠接受后返回 2xx。此签名为平台协议，不是 OneBot HTTP POST 签名。
 - 非 2xx、TLS/DNS/网络错误进入退避。默认最多领取五次；连续崩溃也计入预算。每次尝试有持久历史（HTTP 状态、固定错误分类、时间），`POST /api/v1/deliveries/{id}/replay/` 可让 Owner 或当前授权 Admin 重放 delivered/failed 任务；每次会创建新的 attempt generation、重置当前预算并写审计，可能重复发送，下游必须幂等去重。
 - 同一授权版本下创建或更改订阅会影响尚未完成的历史快照，不仅限于新事件。授权版本变化后旧快照不复活，订阅须重新保存；禁用后不再新领取，但无法撤回已经发出的网络请求。
 - 队列采用至少一次语义，不能承诺恰好一次。HTTP 拉取和 WS 游标独立于推送状态，不能互相当作业务确认。
 
+## 升级、备份与开发验收
+
+- 升级前备份数据库与独立保存的 BOT_ENCRYPTION_KEY；先在备份副本演练 migrate。0019 保留旧 Bot ID 和授权，将旧共享 Channel 拆为一 Bot 一 Channel；0020 修复旧创建流程的默认 Channel 隔离；0021 添加 API 审计消息类型和重放标记，历史行保留且重放状态未知。
+- 新 Key 按产品要求在数据库明文保存原 token，只有摘要的历史 token 无法恢复。限制数据库、备份与日志访问；备份介质应加密，撤销泄露凭据。不要将 .env、config.txt、SECRET.txt 提交或放入前端资源。
+- 官方 HTTP 和 Gateway 默认使用标准 `HTTPS_PROXY=http://127.0.0.1:7890`、`NO_PROXY=127.0.0.1,localhost`。backend/.env 自动加载，已导出的环境变量优先；旧 QQ_HTTP_PROXY 非空为兼容覆盖。自定义上游和回调不读代理，保持公网校验。开发服务使用 --reload；生产不要使用。
+- 受限实测：`uv run --locked python manage.py verify_live_qq --listen-seconds 25`；只有明确需要发送时追加 `--send`，最多向批准目标发送一条文本，不进行其他群探测或管理操作。凭据从 config.txt 及其明确引用的 SECRET.txt 读取，输出仅脱敏状态，结束清理临时资源。
+- PostgreSQL 并发、跨进程租约和故障恢复验收按当前用户指示暂缓；SQLite 测试不替代这些验收，不宣称生产就绪。
+
 ## 本次验证证据
 
 - 测试数据库覆盖官方 Webhook 验签、去重、授权隔离、租约回收、尝试预算、HTTP 回调、订阅管理、OneBot 有限动作以及 WS 握手/流/撤权。
-- 网络测试采用模拟官方及回调响应；实际 Uvicorn 冒烟验证 `/health/`=200 和未授权 WS 握手=403。
+- 已经通过运行中的 localhost:8000 真正 HTTP 验证 QQ 身份、批准群文本发送、幂等重放、同 token 复制/编辑、限权与撤销；真实 Gateway READY/ACK/RESUMED 也通过。公网回调仍为模拟测试。
 - 前端进行测试、类型检查、Fluent-only 检查与生产构建；构建仍提示主 bundle 超过 500 kB。
-- 当前共享浏览器处于未登录状态，未使用或重置用户密码；新增管理页交互通过组件测试验证，不冒充已完成真实登录浏览器验收。
+- 浏览器在用户已有登录会话中检查真实 Provider/Channel/批准群会话、无授权空态及窄屏弹窗，未使用或重置用户密码；不宣称全路径人工验收完成。
 
 ## 不可省略的外部验收
 
-需要操作人在本机管理页面配置真实 QQ Bot Secret（不要发送到聊天），并提供公网 HTTPS 回调与 QQ 平台配置权限。
+真实 QQ Bot 已从本地配置接入。公网 HTTPS 回调仍需操作人提供接收端与 QQ 平台配置权限。
 
 1. 在 QQ 平台登记 `/webhooks/qq/BOT_ID/`，确认官方地址挑战和真实签名事件通过。
 2. 实际发送一条私聊/群消息，检查官方 OpenID、回复 msg_id/msg_seq、审核语义与错误码。
@@ -41,7 +60,7 @@
 
 ## 尚未实现与待外部验收（不同阶段）
 
-尚未实现：官方 Gateway 上游 WS、OneBot 事件转换与 WS、频道 multipart 图片直传、OpenAPI 完整响应模型；这些不是仅待联调的已完成功能。管理/relay 请求 OpenAPI 已在 `/api/v1/openapi.json` 提供。单聊/群聊撤回、频道及频道私信 JSON 消息与撤回、files、upload_prepare、upload_part_finish 代理已实现；COS 分片由客户端按官方预签名 URL 直传，具体范围及副作用权限见 PROXY_SUPPORT.md。
+尚未实现：Gateway 多分片编排、OneBot 反向/通用混合 WebSocket、官方异步审核全生命周期跟踪。OneBot 持久虚拟 ID、文本事件转换及分离 API/event WS 已实现，但不等于真实 QQ 号或完整 OneBot。管理/relay OpenAPI 在 `/api/v1/openapi.json` 提供完整资源/响应模型。单聊/群聊撤回、频道及频道私信 JSON 消息与撤回、频道 multipart、files、upload_prepare、upload_part_finish 已实现；COS 分片仍由客户端按官方预签名 URL 直传，范围见 PROXY_SUPPORT.md。
 
 已实现并有自动化测试：邀请、Admin 生命周期、Bot/凭据生命周期、Key 轮换、数据库共享限流、可配置平台/Bot/用户/Key 共享请求配额、可选发送幂等、回调签名、DeliveryAttempt、人工 replay 和数据面调用审计。配额管理契约见 API.md；幂等和过期响应清理见 PROXY_SUPPORT.md。
 
