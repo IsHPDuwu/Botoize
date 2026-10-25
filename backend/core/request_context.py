@@ -14,10 +14,10 @@ def audit_path(request, match):
 
     path = (getattr(match, 'kwargs', None) or {}).get('path', '')
     if request.path.startswith('/onebot/'):
-        action = path.rstrip('/')
-        return '/onebot/' + (action if action in {
-            'get_login_info', 'send_private_msg', 'send_group_msg',
-        } else '<unsupported>')
+        from .onebot import ACTIONS11, ACTIONS12, EXTENSIONS
+        action = getattr(request, 'onebot_action', path.rstrip('/'))
+        prefix = '/onebot/v12/' if request.path.startswith('/onebot/v12') else '/onebot/'
+        return prefix + (action if action in ACTIONS11 | ACTIONS12 | EXTENSIONS else '<unsupported>')
     if request.path.startswith('/qq/'):
         templates = ['users/@me', 'users/@me/dms']
         for kind, identifier in [('v2/users', 'user_id'), ('v2/groups', 'group_id'),
@@ -29,7 +29,7 @@ def audit_path(request, match):
                                  ['files', 'upload_prepare', 'upload_part_finish'])
         templates.extend(template for _, template, _ in OPERATIONS)
         for template in templates:
-            pattern = re.sub(r'\{\w+\}', lambda match: r'[A-Za-z0-9_-]{1,256}'
+            pattern = re.sub(r'\{\w+\}', lambda match: r'[A-Za-z0-9_.=+-]{1,256}'
                              if match[0] == '{message_id}' else ID, template)
             if re.fullmatch(pattern, path):
                 return '/qq/' + template
@@ -37,12 +37,46 @@ def audit_path(request, match):
     return getattr(match, 'route', None) or '<unmatched>'
 
 
+def onebot_message_type(action, params, version=11):
+    """Fixed labels only; never put segment data or arbitrary type names in logs."""
+    if action not in {'send_message', 'send_msg', 'send_private_msg', 'send_group_msg'} or not isinstance(params, dict):
+        return ''
+    segments = params.get('message')
+    if version == 11:
+        from .onebot import segments11
+        try:
+            segments = segments11(segments, params.get('auto_escape', False))
+        except Exception:
+            return ''
+    if not isinstance(segments, list):
+        return ''
+    labels = {'text': 'text', 'image': 'image', 'video': 'video', 'record': 'audio', 'voice': 'audio',
+              'file': 'file', 'botoize.file': 'file', 'reply': 'reference', 'qq.markdown': 'markdown',
+              'qq.keyboard': 'keyboard', 'qq.ark': 'ark', 'qq.embed': 'embed'}
+    found = []
+    for segment in segments:
+        if isinstance(segment, dict) and isinstance(segment.get('type'), str):
+            label = labels.get(segment['type'])
+            if label and label not in found:
+                found.append(label)
+    if 'qq.reply_to' in params and 'reference' not in found:
+        found.append('reference')
+    label = '+'.join(found)
+    return label if len(label) <= 32 else 'mixed'
+
+
 def audit_message_type(request, path):
     """Read already-parsed data only; logging must not parse a rejected request."""
     if request.method != 'POST':
         return ''
-    if path in {'/onebot/send_private_msg', '/onebot/send_group_msg'}:
-        return 'text'
+    if path.startswith('/onebot/'):
+        envelope = getattr(request, 'onebot_envelope', None)
+        if envelope is not None:
+            return onebot_message_type(envelope['action'], envelope['params'], 12)
+        data = getattr(request, '_full_data', None)
+        if not isinstance(data, dict):
+            data = getattr(request, 'query_params', {})
+        return onebot_message_type(path.rsplit('/', 1)[-1], data.dict() if hasattr(data, 'dict') else dict(data))
     data = getattr(request, '_full_data', None)
     if not isinstance(data, dict):
         return ''

@@ -3,6 +3,7 @@ from core import views
 from core.webhook import OfficialWebhook
 from core.openapi import openapi_schema
 from core.providers import Providers, UpstreamInterfaces, CopyToken, SyncConversations, ScopeCatalog
+from core.onebot_http import OneBot12HTTP
 
 urlpatterns = [
     path('api/v1/openapi.json', openapi_schema),
@@ -39,5 +40,8 @@ urlpatterns = [
     path('api/v1/owner/keys/<int:pk>/revoke/', views.RevokeKey.as_view(), {'global_revoke': True}),
     path('relay/v1/capabilities/', views.Capabilities.as_view()),
     path('relay/v1/events/', views.RelayEvents.as_view()),
+    path('onebot/v12/', OneBot12HTTP.as_view()),
+    path('onebot/v12', OneBot12HTTP.as_view()),
+    re_path(r'^onebot/v11/(?P<path>.*)$', views.Proxy.as_view()),
     re_path(r'^(?:qq|onebot)/(?P<path>.*)$', views.Proxy.as_view()),
 ]

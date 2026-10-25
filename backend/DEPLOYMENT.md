@@ -4,8 +4,8 @@
 
 1. 在 backend 使用 `uv sync --locked --no-dev` 安装锁定依赖。生产密钥与 PostgreSQL 环境要求见 API.md。不要使用测试设置或开发 SQLite。
 2. 运行 `uv run --locked python manage.py migrate`，再运行 `uv run --locked python manage.py check --deploy`。安全警告必须结合实际 TLS/反代配置解决，不能直接忽略。
-3. 使用 `uv run --locked uvicorn config.asgi:application --host 127.0.0.1 --port 8000 --lifespan off --no-proxy-headers --ws-max-size 1048576`。
-4. 前端在 frontend 运行 `pnpm install --frozen-lockfile`、`pnpm build`。反向代理提供 dist 静态文件，并将 `/api/`、`/qq/`、`/onebot/`、`/relay/`、`/webhooks/`、`/health/` 转发到后端；允许 `/relay/v1/ws/` 的 Upgrade。其他静态路由回落 index.html。
+3. 使用 `uv run --locked uvicorn config.asgi:application --host 127.0.0.1 --port 8000 --lifespan off --no-proxy-headers --ws-max-size 12582912`。12 MiB 帧用于 OneBot 文件 Base64；原生 QQ HTTP 仍限制 1 MiB，旧 OneBot API WS 仍限制 64 KiB。
+4. 前端在 frontend 运行 `pnpm install --frozen-lockfile`、`pnpm build`。反向代理提供 dist 静态文件，并将 `/api/`、`/qq/`、`/onebot/`、`/relay/`、`/webhooks/`、`/health/` 转发到后端；允许 `/relay/v1/ws/` 和 `/onebot/` 的 Upgrade，OneBot JSON 正文上限至少 12 MiB。其他静态路由回落 index.html。
 5. 生产必须配置 HTTPS、正确的 ALLOWED_HOSTS、CSRF_TRUSTED_ORIGINS 与安全 Cookie。不要盲目信任客户端转发头；入口仍须限制请求正文大小和连接数。应用内数据库限流按 UTC/数据库时间使用 60 秒固定窗口：登录每来源地址 10 次、管理 API 每用户 120 次、Bearer 每 Key 120 次/每 Admin 300 次/每 Bot 600 次；重复调度 `manage.py cleanup_throttles` 清理过期计数。确认可信反代正确改写 REMOTE_ADDR，否则登录按直连源地址共享额度。
 6. 使用服务管理器保持 ASGI 服务运行；为 HTTP 回调单独建立重复调度，执行 `uv run --locked python manage.py deliver_outbox --limit 20`。可多工作进程竞争，但需自行控制全局并发及官方配额。每次命令是有限批次，不会常驻。
 
@@ -33,7 +33,7 @@ Gateway 与 Webhook 同时启用时仅按官方 event ID 去重；不得假设�
 
 ## 升级、备份与开发验收
 
-- 当前迁移至 0023：0022 将授权订阅改为一对多、为 Outbox 绑定确切回调与 revision、增加日志名称快照；0023 回填旧回调目标与可恢复名称。升级仍需先备份数据库和加密密钥，migrate 完成后重启 API、Gateway 与投递 worker，防止旧进程继续使用单订阅模型。无待迁移时可重复执行。
+- 当前迁移至 0028：0022–0023 为多回调和名称快照；0024–0028 为 OneBot 消息上下文、Key 文件/分片、轮询游标、反向目标租约和频道归属。升级仍需先备份数据库和加密密钥，migrate 完成后重启 API、Gateway 与投递 worker，防止旧进程继续使用旧模型。无待迁移时可重复执行。
 
 - 升级前备份数据库与独立保存的 BOT_ENCRYPTION_KEY；先在备份副本演练 migrate。0019 保留旧 Bot ID 和授权，将旧共享 Channel 拆为一 Bot 一 Channel；0020 修复旧创建流程的默认 Channel 隔离；0021 添加 API 审计消息类型和重放标记，历史行保留且重放状态未知。
 - 新 Key 按产品要求在数据库明文保存原 token，只有摘要的历史 token 无法恢复。限制数据库、备份与日志访问；备份介质应加密，撤销泄露凭据。不要将 .env、config.txt、SECRET.txt 提交或放入前端资源。
@@ -43,7 +43,7 @@ Gateway 与 Webhook 同时启用时仅按官方 event ID 去重；不得假设�
 
 ## 本次验证证据
 
-- 测试数据库覆盖官方 Webhook 验签、去重、授权隔离、租约回收、尝试预算、HTTP 回调、订阅管理、OneBot 有限动作以及 WS 握手/流/撤权。
+- 测试数据库覆盖官方 Webhook 验签、去重、授权隔离、租约回收、尝试预算、HTTP 回调、订阅管理、OneBot 11/12 动作/文件/事件以及正反向 WS 握手/流/撤权。
 - 已经通过运行中的 localhost:8000 真正 HTTP 验证 QQ 身份、批准群文本发送、幂等重放、同 token 复制/编辑、限权与撤销；真实 Gateway READY/ACK/RESUMED 也通过。公网回调仍为模拟测试。
 - 前端进行测试、类型检查、Fluent-only 检查与生产构建；构建仍提示主 bundle 超过 500 kB。
 - 浏览器在用户已有登录会话中检查真实 Provider/Channel/批准群会话、无授权空态及窄屏弹窗，未使用或重置用户密码；不宣称全路径人工验收完成。
@@ -62,7 +62,7 @@ Gateway 与 Webhook 同时启用时仅按官方 event ID 去重；不得假设�
 
 ## 尚未实现与待外部验收（不同阶段）
 
-尚未实现：Gateway 多分片编排、OneBot 反向/通用混合 WebSocket、官方异步审核全生命周期跟踪。OneBot 持久虚拟 ID、文本事件转换及分离 API/event WS 已实现，但不等于真实 QQ 号或完整 OneBot。管理/relay OpenAPI 在 `/api/v1/openapi.json` 提供完整资源/响应模型。单聊/群聊撤回、频道及频道私信 JSON 消息与撤回、频道 multipart、files、upload_prepare、upload_part_finish 已实现；COS 分片仍由客户端按官方预签名 URL 直传，范围见 PROXY_SUPPORT.md。
+尚未实现：Gateway 多分片编排、官方异步审核全生命周期跟踪及 QQ 未开放的个人号能力。OneBot 11/12 的 HTTP、通用/分离 WS、反向 WS、HTTP 上报已实现；12 使用原始字符串 ID，11 持久虚拟数字不是真实 QQ 号。覆盖与明确不支持项见 ONEBOT_SUPPORT.md；反向公网接收端仍待外部验收。管理/relay OpenAPI 在 `/api/v1/openapi.json` 提供资源/响应模型。单聊/群聊撤回、频道及频道私信 JSON 消息与撤回、频道 multipart、files、upload_prepare、upload_part_finish 已实现；COS 分片仍由客户端按官方预签名 URL 直传，范围见 PROXY_SUPPORT.md。
 
 已实现并有自动化测试：邀请、Admin 生命周期、Bot/凭据生命周期、Key 轮换、数据库共享限流、可配置平台/Bot/用户/Key 共享请求配额、可选发送幂等、回调签名、DeliveryAttempt、人工 replay 和数据面调用审计。配额管理契约见 API.md；幂等和过期响应清理见 PROXY_SUPPORT.md。
 

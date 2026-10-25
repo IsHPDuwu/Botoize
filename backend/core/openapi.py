@@ -169,7 +169,22 @@ def schema():
     for index, (method, path, scope) in enumerate(OPERATIONS):
         add('/qq/' + path, method.lower(), f'officialOperation{index}', bearer=True,
             response={'$ref': '#/components/schemas/OfficialResponse'})
-        paths['/qq/' + path][method.lower()]['description'] = f'Raw official response passthrough; requires {scope} and unrestricted conversation grants. QQ permissions still apply.'
+        paths['/qq/' + path][method.lower()]['description'] = f'Raw official response passthrough; requires {scope} and the matching conversation authorization (guild/channel operations require unrestricted grants). QQ permissions still apply.'
+
+    onebot_response = object_schema({'status': {'type': 'string', 'enum': ['ok', 'failed']},
+        'retcode': {'type': 'integer'}, 'data': {}, 'message': STRING, 'echo': {}}, ['status', 'retcode', 'data', 'message'])
+    add('/onebot/v12/', 'post', 'onebot12Action', bearer=True, properties={
+        'action': STRING, 'params': {'type': 'object', 'additionalProperties': True}, 'echo': STRING,
+        'self': object_schema({'platform': STRING, 'user_id': STRING}, ['platform', 'user_id']),
+    }, required=['action', 'params'], response=onebot_response)
+    paths['/onebot/v12/']['post']['description'] = 'OneBot 12 JSON action envelope. Platform IDs are strings. Protocol errors after parsing return HTTP 200 with a nonzero retcode. See ONEBOT_SUPPORT.md for scopes, transports and capability limitations.'
+    from .onebot import ACTIONS11, EXTENSIONS
+    for index, action in enumerate(sorted(ACTIONS11 | EXTENSIONS)):
+        for verb in ['get', 'post']:
+            add('/onebot/v11/' + action, verb, f'onebot11Action{index}{verb.title()}', bearer=True, response=onebot_response)
+            if verb == 'post':
+                paths['/onebot/v11/' + action][verb]['requestBody'] = {'required': True, 'content': {
+                    'application/json': {'schema': {'type': 'object', 'additionalProperties': True}}}}
 
     def ref(name):
         return {'$ref': '#/components/schemas/' + name}

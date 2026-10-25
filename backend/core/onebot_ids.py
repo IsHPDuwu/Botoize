@@ -28,8 +28,10 @@ def virtual_id(bot, kind, original):
     if existing:
         return existing.virtual_id
     value = candidate(original)
+    limit = 2147483647 if kind == 'message' else MAX_ID
+    value = (value - 1) % limit + 1
     while mappings.filter(virtual_id=value).exists():
-        value = value % MAX_ID + 1
+        value = value % limit + 1
     mappings.create(bot=bot, kind=kind, original_id=original, virtual_id=value)
     return value
 

@@ -7,6 +7,12 @@ import re
 
 ID = r'[A-Za-z0-9_-]{1,128}'
 OPERATIONS = (
+    ('GET', 'v2/groups/{group_openid}/info', 'groups:read'),
+    ('GET', 'v2/groups/{group_openid}/members', 'group-members:read'),
+    ('GET', 'v2/groups/{group_openid}/members/{member_openid}', 'group-members:read'),
+    ('POST', 'v2/groups/{group_openid}/batch_remove_members', 'group-moderation:write'),
+    ('POST', 'v2/groups/{group_openid}/restrict_chat_setting', 'group-moderation:write'),
+    ('POST', 'v2/groups/{group_openid}/approval_join_request/{member_openid}', 'group-requests:write'),
     ('GET', 'guilds/{guild_id}', 'guilds:read'),
     ('GET', 'guilds/{guild_id}/channels', 'channels:read'),
     ('POST', 'guilds/{guild_id}/channels', 'channels:write'),

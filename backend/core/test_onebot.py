@@ -46,7 +46,9 @@ def test_onebot_rejects_unsupported_message(params):
 
 def test_onebot_scope_and_unknown_action():
     assert invoke(None, [], 'send_private_msg', {}).data['retcode'] == 1403
-    assert invoke(None, [], 'delete_msg', {}).data['retcode'] == 1404
+    assert invoke(None, [], 'delete_msg', {}).data['retcode'] == 1403
+    assert invoke(None, [], 'set_group_ban', {}).data['retcode'] == 1403
+    assert invoke(None, [], 'send_like', {}).data['retcode'] == 1404
     assert invoke(None, [], [], {}).data['retcode'] == 1404
 
 

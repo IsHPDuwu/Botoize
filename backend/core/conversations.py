@@ -4,6 +4,10 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from .models import Conversation, BotGrant
 
+GROUP_EVENTS = ['GROUP_AT_MESSAGE_CREATE', 'GROUP_MESSAGE_CREATE', 'GROUP_ADD_ROBOT', 'GROUP_DEL_ROBOT',
+                'GROUP_MSG_RECEIVE', 'GROUP_MSG_REJECT', 'GROUP_MEMBER_ADD', 'GROUP_MEMBER_REMOVE', 'GROUP_JOIN_REQUEST']
+DIRECT_EVENTS = ['FRIEND_ADD', 'FRIEND_DEL', 'C2C_MSG_RECEIVE', 'C2C_MSG_REJECT']
+
 
 def conversation_data(row):
     return {'id': row.pk, 'name': row.name, 'isDirect': row.is_direct,
@@ -82,8 +86,10 @@ def event_target(payload):
         author = data.get('author', {})
         target = author.get('user_openid') if isinstance(author, dict) else None
         direct = True
-    elif kind in {'GROUP_AT_MESSAGE_CREATE', 'GROUP_MESSAGE_CREATE'}:
+    elif kind in GROUP_EVENTS:
         target, direct = data.get('group_openid'), False
+    elif kind in DIRECT_EVENTS:
+        target, direct = data.get('openid'), True
     else:
         return None
     if not isinstance(target, str) or not 1 <= len(target) <= 256:
@@ -109,8 +115,8 @@ def filter_events(rows, policy, prefix='event__'):
     payload = prefix + 'payload__'
     return rows.filter(
         Q(**{payload + 't': 'C2C_MESSAGE_CREATE', payload + 'd__author__user_openid__in': direct})
-        | Q(**{payload + 't__in': ['GROUP_AT_MESSAGE_CREATE', 'GROUP_MESSAGE_CREATE'],
-               payload + 'd__group_openid__in': groups}))
+        | Q(**{payload + 't__in': GROUP_EVENTS, payload + 'd__group_openid__in': groups})
+        | Q(**{payload + 't__in': DIRECT_EVENTS, payload + 'd__openid__in': direct}))
 
 
 def discover(bot, payload):

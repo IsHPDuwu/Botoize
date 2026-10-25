@@ -5,7 +5,7 @@ import time
 from urllib.parse import parse_qs
 
 from asgiref.sync import sync_to_async
-from django.db import close_old_connections
+from django.db import close_old_connections, connection
 from rest_framework.exceptions import APIException
 
 from .models import EventOutbox
@@ -13,7 +13,7 @@ from .services import authorize
 from .conversations import filter_events, key_grant
 
 
-def onebot_identity(token):
+def onebot_identity(token, version=11):
     from .official import get_self, OfficialCredentialError
     from .onebot_ids import virtual_id
     from rest_framework.exceptions import PermissionDenied
@@ -23,7 +23,8 @@ def onebot_identity(token):
         status, body, _ = get_self(key.bot)
         if status != 200:
             raise ValueError('Upstream identity unavailable')
-        identity = virtual_id(key.bot, 'user', json.loads(body)['id'])
+        raw_id = json.loads(body)['id']
+        identity = raw_id if version == 12 else virtual_id(key.bot, 'user', raw_id)
         cursor = EventOutbox.objects.filter(is_stream=True, grant__user_id=key.user_id, grant__bot_id=key.bot_id).order_by('-pk').values_list('pk', flat=True).first() or 0
         return identity, cursor
     except (OfficialCredentialError, ValueError, TypeError, KeyError) as exc:
@@ -32,21 +33,29 @@ def onebot_identity(token):
         close_old_connections()
 
 
-def read_onebot_page(token, cursor, self_id):
+def onebot_rows(key, cursor):
+    rows = EventOutbox.objects.filter(
+        is_stream=True, grant__user_id=key.user_id, grant__bot_id=key.bot_id,
+        grant_revision=key.grant_revision, event__bot_id=key.bot_id, pk__gt=cursor,
+    ).select_related('event').order_by('pk')
+    return filter_events(filter_events(rows, key_grant(key)), key)
+
+
+def read_onebot_page(token, cursor, self_id, version=11, limit=50, through=None):
     from .onebot_events import message_event
-    close_old_connections()
+    if not connection.in_atomic_block:
+        close_old_connections()
     try:
         key, _ = authorize(token, scope='events:read')
-        rows = EventOutbox.objects.filter(
-            is_stream=True,
-            grant__user_id=key.user_id, grant__bot_id=key.bot_id,
-            grant_revision=key.grant_revision, event__bot_id=key.bot_id,
-            pk__gt=cursor,
-        ).select_related('event').order_by('pk')
-        rows = filter_events(filter_events(rows, key_grant(key)), key)[:50]
-        return [{'cursor': str(row.pk), 'payload': message_event(key.bot, row.event.payload, self_id)} for row in rows]
+        rows = onebot_rows(key, cursor)
+        if through is not None:
+            rows = rows.filter(pk__lte=through)
+        rows = rows[:limit]
+        return [{'cursor': str(row.pk), 'payload': message_event(key.bot, row.event.payload, self_id, version=version,
+                key=key, received_at=row.event.received_at)} for row in rows]
     finally:
-        close_old_connections()
+        if not connection.in_atomic_block:
+            close_old_connections()
 
 
 def read_page(token, cursor):

@@ -1,3 +1,5 @@
+import uuid
+
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 
@@ -260,3 +262,59 @@ class QuotaUsage(models.Model):
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=['policy', 'window'], name='unique_quota_window')]
+
+
+class OneBotMessage(models.Model):
+    bot = models.ForeignKey(Bot, on_delete=models.CASCADE)
+    message_id = models.CharField(max_length=256)
+    is_direct = models.BooleanField()
+    target_id = models.CharField(max_length=256)
+    sender_id = models.CharField(max_length=256, blank=True)
+    segments = models.JSONField(default=list)
+    sent_at = models.FloatField()
+    incoming = models.BooleanField(default=False)
+    reference = models.CharField(max_length=256, blank=True)
+    reply_sequence = models.PositiveIntegerField(default=0)
+    deleted = models.BooleanField(default=False)
+    source_event = models.ForeignKey(Event, null=True, on_delete=models.CASCADE)
+    created_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL)
+    conversation_type = models.CharField(max_length=16, blank=True)
+    guild_id = models.CharField(max_length=128, blank=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['bot', 'message_id'], name='onebot_message_unique')]
+
+
+class OneBotFile(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    api_key = models.ForeignKey(ApiKey, on_delete=models.CASCADE)
+    name = models.CharField(max_length=255)
+    data = models.BinaryField(default=bytes)
+    url = models.URLField(max_length=2048, blank=True)
+    total_size = models.PositiveIntegerField(default=0)
+    complete = models.BooleanField(default=False)
+    sha256 = models.CharField(max_length=64, blank=True)
+    expires_at = models.DateTimeField(db_index=True)
+    # Files received in events remain subject to the current conversation policy.
+    is_direct = models.BooleanField(null=True)
+    target_id = models.CharField(max_length=256, blank=True)
+    ranges = models.JSONField(default=list)
+    conversation_type = models.CharField(max_length=16, blank=True)
+
+
+class OneBotPollCursor(models.Model):
+    api_key = models.OneToOneField(ApiKey, on_delete=models.CASCADE)
+    cursor = models.PositiveBigIntegerField(default=0)
+
+
+class OneBotPeer(models.Model):
+    api_key = models.ForeignKey(ApiKey, on_delete=models.CASCADE)
+    version = models.PositiveSmallIntegerField()
+    kind = models.CharField(max_length=16)
+    destination_digest = models.CharField(max_length=64)
+    cursor = models.PositiveBigIntegerField(default=0)
+    lease_token = models.UUIDField(null=True)
+    lease_until = models.DateTimeField(null=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['api_key', 'version', 'kind', 'destination_digest'], name='onebot_peer_unique')]

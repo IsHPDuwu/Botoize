@@ -597,6 +597,10 @@ class Bearer(BaseAuthentication):
 
     def authenticate(self, request):
         header = request.headers.get('Authorization', '').split()
+        if 'Authorization' not in request.headers and request.path.startswith('/onebot/'):
+            tokens = request.query_params.getlist('access_token')
+            if len(tokens) == 1:
+                header = ['Bearer', tokens[0]]
         if len(header) != 2 or header[0].lower() != 'bearer':
             raise AuthenticationFailed('Bearer key required')
         key, scopes = authorize(header[1], request.query_params.get('bot_id'))
@@ -786,8 +790,9 @@ class Proxy(DataPlaneAuditMixin, Capabilities):
             return Response(status=404)
         if request.method == 'GET':
             params = request.query_params.dict()
+            params.pop('access_token', None)
         else:
-            if len(request.body) > 1048576:
+            if len(request.body) > 12 * 1024 * 1024:
                 return Response(status=413)
             if parse_header_parameters(request.content_type)[0] not in {'application/json', 'application/x-www-form-urlencoded'}:
                 return Response(status=406)

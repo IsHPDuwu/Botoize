@@ -82,3 +82,26 @@ def test_real_reader_isolation_and_regrant():
         read_onebot_page(token, 0, 42)
     _, renewed = issue_key(user, bot, 'renewed', ['events:read'])
     assert read_onebot_page(renewed, 0, 42) == []
+
+
+@pytest.mark.django_db
+def test_unknown_event_redacts_nested_credentials():
+    bot = Bot.objects.create(name='redact', app_id='redact', encrypted_secret='unused')
+    payload = {'op': 0, 'id': 'event', 't': 'QQ_UNKNOWN_NOTICE', 'd': {
+        'timestamp': 1792900800, 'nested': {'AUTH_TOKEN': 'hidden', 'Authorization': 'hidden',
+        'items': ['auth_token=hidden', {'app-secret': 'hidden', 'id': 'visible'}]},
+        'message_scene': {'ext': ['auth_token=hidden']},
+    }}
+    event = message_event(bot, payload, 'self', version=12)
+    assert 'hidden' not in json.dumps(event)
+    assert event['qq.data']['nested']['items'] == [{'id': 'visible'}]
+
+
+def test_malformed_attachment_does_not_crash_ingestion():
+    from .onebot_events import parsed_message
+    payload = {'op': 0, 't': 'C2C_MESSAGE_CREATE', 'd': {
+        'id': 'message', 'author': {'user_openid': 'sender'}, 'content': 'hello',
+        'timestamp': '2026-10-25T12:00:00Z',
+        'attachments': [{'url': 'https://[invalid', 'content_type': 'image/png'}],
+    }}
+    assert parsed_message(payload) is None

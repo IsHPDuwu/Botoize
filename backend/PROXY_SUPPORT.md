@@ -64,54 +64,17 @@ upload_prepare 的返回 URL 有时效，幂等重放不刷新签名；客户端
 须运行支持 WebSocket 的 ASGI 服务器，Django runserver 不提供此功能。
 该流是本平台协议，不是官方 Gateway，也不是 OneBot WebSocket。
 
-## OneBot HTTP 子集（虚拟数字 ID，不是真实 QQ 号）
+## OneBot 11 / 12 下游
 
-使用相同 Bearer Key，GET/POST `/onebot/{action}`（可有末尾斜杠）。GET 使用 query；POST 支持 JSON 对象或 urlencoded 表单。
-根路径 `/onebot/` 不再接受 WebSocket action/params/echo envelope，该结构不是标准 HTTP 动作请求。
-未知动作 HTTP 404、不支持的 POST Content-Type 406、格式错误 400；正常动作结果 HTTP 200。旧适配响应仍含 message/echo 扩展。
+已扩展为双版本 HTTP、正向通用/分离 WS、反向通用 WS、HTTP 上报及 12 事件轮询。12 保留原始字符串 ID，11 使用持久数值映射（不是 QQ 号）。支持文本/媒体/文件/引用/撤回、群信息/成员/管理以及 12 频道能力；不支持的动作、消息段与参数明确失败，不伪造成功或完整名单。
 
-| action | 权限 | params / 结果 |
-| --- | --- | --- |
-| get_login_info | query:read | 空 params；结果 user_id（虚拟数字 ID）、nickname |
-| send_private_msg | messages:send | user_id（已登记的虚拟 ID）、message（文本或 text 消息段数组） |
-| send_group_msg | messages:send | group_id（已登记的虚拟 ID）、message（文本或 text 消息段数组） |
+版本入口为 `/onebot/v11/{action}` 与 `/onebot/v12/`，通用 WS 为 `/onebot/v11/`、`/onebot/v12/`。旧 `/onebot/{action}`、`/onebot/api`、`/onebot/event` 保留。完整动作/事件/错误码/安全限制、反向进程启动和配置见 [ONEBOT_SUPPORT.md](ONEBOT_SUPPORT.md)。
 
-ID 持久保存，按 Bot 和 user/group/message 类型隔离，范围为 1 到 2^53-1。
-十六进制前 13 位作为候选，其他格式用 SHA-256 候选；碰撞顺延并持久化，不通过算法反推 OpenID。
-单聊/群聊事件入库时登记对应映射。旧历史事件不会自动回填。
-发送只接受已登记虚拟 ID（JSON 整数或表单十进制字符串），不接受真实 QQ 号或原始 OpenID。
-不再支持自造 msg_id/msg_seq 参数；不自动产生回复上下文，官方主动发送权限仍适用。
-字符串默认按 CQ 文本规则反转义，非 text CQ 段明确拒绝；auto_escape=true 时按字面量发送。
-成功发送的 data.message_id 为持久化虚拟数字 ID；缺少 ID、网络失败或结果无法解析返回 1502，
-不能盲目重发。1400 表示参数错误，1403 为缺权限，1404 为动作不支持，1500 为官方非 2xx。
-官方接受响应也不保证业务消息最终送达。
-
-### OneBot 正向事件 WebSocket
-
-服务端客户端可连接 `/onebot/event`（或末尾斜杠），使用 `Authorization: Bearer <key>`，要求 `events:read`。
-拒绝 Origin、Cookie 身份和 URL token；不支持 URL cursor 参数。连接从当前事件尾部开始，不补发历史事件。
-连接先输出 OneBot lifecycle/connect 元事件；self_id 与 get_login_info 使用同一持久虚拟映射。
-只转换 C2C_MESSAGE_CREATE、GROUP_AT_MESSAGE_CREATE 的无附件文本消息；频道、富媒体和格式不完整事件跳过。
-message 为 text 段数组，raw_message 按 CQ 文本转义。未知昵称留空，不编造好友关系或群管理员角色。
-每页重新授权并限定当前 grant revision；撤权关闭码 4403，错误客户端帧关闭码 4400，慢消费者超时关闭码 1013。
-该事件连接不接受 action 请求；动作使用 HTTP 或下述独立 API 连接。断线不保证事件补发，可靠消费需使用原生持久事件接口。
-
-### OneBot 正向 API WebSocket
-
-连接 `/onebot/api`（或末尾斜杠），Bearer 鉴权，无 Origin 和 URL 参数。
-客户端发送 JSON `{action, params, echo}`，服务端返回 OneBot 动作结果并原样带回 echo。
-动作集合与 HTTP 相同，串行执行；每次动作重新授权并消耗与 HTTP 共享的 Key/Admin/Bot 限流及配额，同时记录调用审计。
-空闲连接也每秒检查授权。只接受文本帧，单帧最多 64 KiB；非法帧关闭码 4400，超长关闭码 1009。
-此连接不输出消息事件；当前提供分离的 API/event 连接，不提供混合通用连接。
-
-目前未实现：真实 QQ 号语义、OneBot 通用 WebSocket、反向 WebSocket、Gateway 多分片编排、
-异步审核跟踪。数据面调用已持久化 request_id、路由模板、状态和耗时，应用已提供按 Key/Admin/Bot 共享的数据库限流；
-下游回调另提供 HMAC 签名、投递历史和受权人工重放。当前官方请求测试使用模拟上游，
-真实网络结果单独记录在根目录 PROJECT_STATUS.md；模拟测试不能证明官方授权、消息送达或生产就绪。
+新版 QQ 群信息和成员接口包含白名单/内邀限制，群管理仍需管理员身份和独立 scope。已真实通过双版 HTTP/WS 身份与 Key 撤销验收、批准群只读信息；媒体和破坏性管理映射使用本地模拟，不重复向真实群发消息。反向公网接收端与真实新入站事件仍待验收，不宣称生产就绪。
 
 ## 管理 API 与凭据
 
-细粒度官方管理路径由 `core/official_routes.py` 的 43 个操作统一驱动 capabilities 和 OpenAPI，见 SCOPE_AUDIT.md。
+细粒度官方管理路径由 `core/official_routes.py` 的 49 个操作统一驱动 capabilities 和 OpenAPI，含本次按新版官网增加的 6 个 QQ 群接口，见 SCOPE_AUDIT.md 和 ONEBOT_SUPPORT.md。
 Owner 配置 Provider/Channel，Channel 下的 Models 为会话；同步只回填历史事件，未知会话由后续已验证事件发现，不枚举未知群/用户。
 Key 创建、原 token 复制、同 token 编辑均要求所属用户和当前有效授权；只有摘要的历史 token 返回不能恢复，不自动轮换。
 按当前产品要求，原始 API token 以明文存储在数据库；数据库/备份泄露会直接暴露 Key，不存在加密保护承诺。

@@ -27,19 +27,28 @@ CHECKS = [
     ('PATCH', '/guilds/{guild_id}/mute', 'speak/patch_guild_mute_multi_member'),
     ('GET', '/guilds/{guild_id}/api_permission', 'api_permissions/get_guild_api_permission'),
     ('GET', '/guilds/{guild_id}/roles/{role_id}/members', 'role/member/get_role_members'),
+    ('GET', '/v2/groups/{group_openid}/info', 'autogen/api/v2_groups_group_openid_info.get'),
+    ('GET', '/v2/groups/{group_openid}/members', 'autogen/api/v2_groups_group_openid_members.get'),
+    ('GET', '/v2/groups/{group_openid}/members/{member_openid}', 'autogen/api/v2_groups_group_openid_members_member_openid.get'),
+    ('POST', '/v2/groups/{group_openid}/batch_remove_members', 'autogen/api/v2_groups_group_openid_batch_remove_members.post'),
+    ('POST', '/v2/groups/{group_openid}/restrict_chat_setting', 'autogen/api/v2_groups_group_openid_restrict_chat_setting.post'),
+    ('POST', '/v2/groups/{group_openid}/approval_join_request/{member_openid}', 'autogen/api/v2_groups_group_openid_approval_join_request_member_openid.post'),
 ]
 
 
 def check(row):
     method, path, page = row
-    url = BASE + 'server-inter/channel/' + page + '.html'
+    generated = page.startswith('autogen/')
+    url = BASE + ('' if generated else 'server-inter/channel/') + page + '.html'
     try:
         with urlopen(Request(url, headers={'User-Agent': 'QQ-Proxy-Documentation-Check/1'}), timeout=25) as response:
             raw = response.read(4_000_000).decode('utf-8')
         text = unescape(re.sub(r'<[^>]+>', '', raw))
         expected = method + ' ' + path
+        verified = (bool(re.search(r'HTTP URL\s*' + re.escape(path) + r'\s*HTTP Method\s*' + method, text))
+                    if generated else expected in text)
         return {'method': method, 'path': path, 'url': url,
-                'verified': expected in text,
+                'verified': verified,
                 'documented_operations': sorted(set(re.findall(r'(?:GET|POST|PUT|PATCH|DELETE)\s+/[\w/{}@-]+', text)))[:15]}
     except Exception as error:
         return {'method': method, 'path': path, 'url': url, 'verified': False, 'error': type(error).__name__}

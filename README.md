@@ -1,4 +1,4 @@
-# QQ-Official-Bot-Proxy
+# Botoize
 QQ 官方机器人中转平台
 
 ## 本地启动（Windows PowerShell）
@@ -25,14 +25,14 @@ QQ 官方机器人中转平台
 前端在独立终端进入 `frontend`，依次运行 `pnpm install`、`pnpm dev`。
 当前已接入真实登录、Bot/授权/API Key 管理、事件查询、HTTP 订阅和投递状态页。
 数据面支持官方用户查询、私聊/群消息代理、验签 Webhook、事件拉取、HTTPS 回调推送、
-下游原生 WebSocket 事件流及受限 OneBot 11 HTTP 动作。
+下游原生事件流及 OneBot 11/12 HTTP、通用 WS、反向 WS、HTTP 上报，12 使用字符串 ID。具体能力和 QQ 平台边界见 [OneBot 支持矩阵](backend/ONEBOT_SUPPORT.md)。
 
-需要 WebSocket 时，后端使用 `uv run --locked uvicorn config.asgi:application --host 127.0.0.1 --port 8000 --lifespan off --no-proxy-headers --ws-max-size 1048576`，
+需要 WebSocket 时，后端使用 `uv run --locked uvicorn config.asgi:application --host 127.0.0.1 --port 8000 --lifespan off --no-proxy-headers --ws-max-size 12582912`，
 而不是 Django runserver。HTTP 推送必须由调度器重复运行
 `uv run --locked python manage.py deliver_outbox --limit 20`；仅启动 Web 服务不会处理回调队列。
 
 具体协议与限制见 [代理支持范围](backend/PROXY_SUPPORT.md)、
 [Webhook 与事件](backend/WEBHOOK_STATUS.md) 和 [部署与验收](backend/DEPLOYMENT.md)。
-目前没有真实 QQ 账号及公网回调联调证据，不宣称生产就绪或全量官方 API/OneBot 兼容。
+已验证真实 QQ 群八类消息及双版 OneBot HTTP/WS 身份、撤权和批准群信息查询；公网反向接收端和真实新入站事件仍待联调，PostgreSQL 暂缓，不宣称生产就绪或全量个人号能力。
 
 验证：在 backend 运行 `uv run --locked pytest`。

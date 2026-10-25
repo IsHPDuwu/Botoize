@@ -23,7 +23,7 @@ def check_token(token):
         close_old_connections()
 
 
-def call_action(token, envelope):
+def call_action(token, envelope, version=11):
     close_old_connections()
     try:
         key, scopes = authorize(token)
@@ -33,20 +33,26 @@ def call_action(token, envelope):
             if not bearer_throttle(key):
                 raise RateLimitExceeded()
             consume_quota(key)
-            return invoke(key.bot, scopes, envelope['action'], envelope.get('params', {}), envelope.get('echo'), key=key).data
+            kwargs = {'version': version, 'self_info': envelope.get('self')} if version == 12 else {}
+            return invoke(key.bot, scopes, envelope['action'], envelope.get('params', {}), envelope.get('echo'), key=key, **kwargs).data
         except APIException as exc:
             status = exc.status_code
-            return {'status': 'failed', 'retcode': 1429 if status == 429 else 1500,
+            return {'status': 'failed', 'retcode': (35029 if status == 429 else 35003) if version == 12 else (1429 if status == 429 else 1500),
                     'data': None, 'message': 'Request limit exceeded' if status == 429 else 'Request failed',
                     'echo': envelope.get('echo')}
         except Exception:
             status = 500
             raise
         finally:
+            from .onebot import ACTIONS11, ACTIONS12, EXTENSIONS
+            from .request_context import onebot_message_type
+            action = envelope.get('action')
+            action = action if isinstance(action, str) and action in ACTIONS11 | ACTIONS12 | EXTENSIONS else '<unsupported>'
             ApiCallAudit.objects.create(
                 api_key=key, user=key.user, bot=key.bot, request_id=uuid.uuid4().hex,
                 bot_name=key.bot.name, username=key.user.username, key_name=key.name,
-                method='WS', path='/onebot/api', status_code=status,
+                method='WS', path=('/onebot/v12/' if version == 12 else '/onebot/') + action,
+                message_type=onebot_message_type(action, envelope.get('params', {}), version), status_code=status,
                 duration_ms=max(0, int((time.monotonic() - started) * 1000)),
             )
     finally:

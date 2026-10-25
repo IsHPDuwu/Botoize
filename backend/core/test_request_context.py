@@ -149,3 +149,32 @@ def test_audit_owner_visibility_and_pagination():
     assert len(older['calls']) == 2 and not older['has_more']
     assert not ({row['id'] for row in page['calls']} & {row['id'] for row in older['calls']})
     assert client.get('/api/v1/api-calls/?before=invalid').status_code == 400
+
+
+@pytest.mark.parametrize(('version', 'message', 'expected'), [
+    (11, '[CQ:image,file=base64://private-body]', 'image'),
+    (11, '[CQ:record,file=private-body]', 'audio'),
+    (11, 'hi[CQ:reply,id=123]', 'text+reference'),
+    (12, [{'type': 'video', 'data': {'file_id': 'private-body'}}], 'video'),
+    (12, [{'type': 'qq.markdown', 'data': {'content': 'private-body'}},
+          {'type': 'qq.keyboard', 'data': {}}], 'markdown+keyboard'),
+    (12, [{'type': 'private-body', 'data': {}}], ''),
+    (12, [{'type': kind, 'data': {}} for kind in
+          ['text', 'image', 'video', 'voice', 'file', 'reply', 'qq.markdown', 'qq.keyboard']], 'mixed'),
+])
+def test_onebot_audit_message_types_are_allowlisted(version, message, expected):
+    from .request_context import onebot_message_type
+    label = onebot_message_type('send_message' if version == 12 else 'send_group_msg', {'message': message}, version)
+    assert label == expected and 'private' not in label
+
+
+def test_onebot12_http_audit_records_operation_without_body_or_ids():
+    _, _, client = setup_key()
+    response = client.post('/onebot/v12/', {'action': 'send_message', 'params': {
+        'detail_type': 'group', 'group_id': 'private-group',
+        'message': [{'type': 'image', 'data': {'file_id': 'private-file'}}],
+    }}, format='json')
+    assert response.json()['retcode'] == 35003
+    row = ApiCallAudit.objects.get()
+    assert row.path == '/onebot/v12/send_message' and row.message_type == 'image'
+    assert 'private' not in str(list(ApiCallAudit.objects.values()))

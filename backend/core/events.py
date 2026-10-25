@@ -25,6 +25,11 @@ def ingest_event(bot, payload):
         return event, False
     from .conversations import discover, event_allowed, grant_current
     discover(current, payload)
+    from .onebot_events import remember_message
+    message = remember_message(current, payload)
+    if message is not None and message.source_event_id is None:
+        message.source_event = event
+        message.save(update_fields=['source_event'])
     from .onebot_ids import virtual_id
     data = payload.get('d')
     if isinstance(data, dict) and event_type in {'C2C_MESSAGE_CREATE', 'GROUP_AT_MESSAGE_CREATE'}:

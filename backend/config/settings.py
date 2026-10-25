@@ -19,6 +19,7 @@ ROOT_URLCONF = 'config.urls'
 AUTH_USER_MODEL = 'core.User'
 USE_TZ = True
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+DATA_UPLOAD_MAX_MEMORY_SIZE = 12 * 1024 * 1024
 DATABASES = {'default': {'ENGINE': 'django.db.backends.sqlite3', 'NAME': BASE_DIR / 'db.sqlite3'}}
 if os.environ.get('DB_ENGINE', 'sqlite') == 'postgres':
     DATABASES = {'default': {'ENGINE': 'django.db.backends.postgresql', 'NAME': os.environ['DB_NAME'], 'USER': os.environ['DB_USER'], 'PASSWORD': os.environ['DB_PASSWORD'], 'HOST': os.environ.get('DB_HOST', 'localhost'), 'PORT': os.environ.get('DB_PORT', '5432'), 'OPTIONS': {'sslmode': os.environ.get('DB_SSLMODE', 'require')}}}

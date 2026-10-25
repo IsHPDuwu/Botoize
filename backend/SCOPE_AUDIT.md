@@ -8,7 +8,7 @@
 | 本地 scope | 当前覆盖 |
 | --- | --- |
 | events:read | 读取、订阅当前有效 BotGrant 对应事件；原生与 OneBot 事件流 |
-| query:read | 已接入的 GET /users/@me 和 OneBot get_login_info |
+| query:read | 已接入的 GET /users/@me 和 OneBot 11/12 身份、版本、状态及能力发现 |
 | messages:send | 已登记单聊、群聊、频道、频道私信发送和创建频道私信 |
 | messages:delete | 已登记单聊、群聊、频道和频道私信消息撤回 |
 | media:upload | 单聊/群聊 files、upload_prepare、upload_part_finish；srv_send_msg=true 另需 messages:send |
@@ -29,11 +29,15 @@
 - audio:control：频道音频控制及上/下麦。
 - moderation:write：全员、指定成员及批量成员禁言/解除禁言。
 - api-permissions:read / api-permissions:write：官方权限列表及授权链接申请。
+- groups:read：QQ 群基本信息（与频道 guilds 分开）。
+- group-members:read：QQ 群成员详情、分页和完整列表（部分接口内邀）。
+- group-moderation:write：QQ 群踢人/黑名单、成员禁言/解除。
+- group-requests:write：QQ 群入群申请审批；OneBot flag 还绑定当前授权版本事件和会话。
 
 新增权限同样受 Key / BotGrant 交集、有效期、共享配额、请求审计约束。Full access 已覆盖新增权限。
 旧 Key 不自动升级，需 Owner 授权后由 Admin 重新创建 Key。
 
-登记了 43 个官方管理操作，新增 20 项方法/路径已通过当前官网逐页核实（`scripts/check_official_docs.py`），未读取 SDK。
+登记了 49 个官方管理操作，其中新增的 6 项 QQ 群操作按 2026 年 autogen 文档核对；此前 20 项与本次 6 项均可通过当前官网逐页检查（`scripts/check_official_docs.py`），未读取 SDK。
 仍不宣称覆盖官方所有群管理和机器人接口；未核实或未登记的方法/路径保持拒绝。
 当前已接入的官方路由有对应权限检查，但不代表覆盖官方全部 API。
 官方文档另有机器人、群聊管理、频道管理等能力目录；当前未登记的查询和管理操作仍不支持。

@@ -100,7 +100,7 @@ Owner 可通过 `POST /api/v1/invitations/` 创建一次性、72 小时默认有
 - GET `/relay/v1/capabilities/`：唯一 bot_id、当前交集 scopes 和可执行的官方 operations；
   websocket_enabled 表示 Key 是否具备原生事件流权限。可选查询 bot_id 必须一致。
 - 已登记的 `/qq/*` 和 `/onebot/*` 动作真实调用官方 API，其余官方路径返回 501；
-  OneBot 未支持的 POST action 返回 retcode=1404。支持范围见 `PROXY_SUPPORT.md`。
+  OneBot 11 未支持 action 返回 retcode=1404；12 返回标准 10002。双版本动作、事件、传输与安全边界见 `ONEBOT_SUPPORT.md`。
 
 登记 scope：events:read、messages:send、media:upload、query:read。
 scope 登记不表示所有同类官方操作均已实现。统一 services.authorize 在每次
@@ -126,7 +126,7 @@ platform 的 subject_id 固定为 0，其余为对应数据库对象 ID；窗口
 pytest.ini 指向独立 test_settings（测试专用 SQLite、
 快速密码哈希和固定测试密钥，严禁部署）。初始迁移已提交。
 
-仍未实现：完整 OpenAPI、全量官方 API、官方 Gateway、完整 OneBot、跨进程即时失效通知。
+OneBot 11/12 已提供双版本数据面，非全量个人号能力；QQ 未开放/未核实的动作与可选 MessagePack 不支持。仍未实现全量官方 API、Gateway 多分片编排及跨进程即时失效通知；WS 通过短周期重新授权实现撤权。详见 ONEBOT_SUPPORT.md。
 已实现数据库固定窗口限流：登录按来源地址、管理 API 按用户、数据面按 Key/Admin/Bot 共享计数；超限返回平台 429 和 Retry-After。`cleanup_throttles` 用于清理过期计数。
 HTTP 查询、队列发送前和 WS 每批次均查询数据库检查授权；不是原子网络撤回，
 已经发出的请求不能撤销，WS 撤权存在轮询间隔。
