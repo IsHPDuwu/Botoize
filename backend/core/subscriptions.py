@@ -24,7 +24,7 @@ def validate_callback(url):
 
 
 @transaction.atomic
-def set_subscription(grant_id, url):
+def set_subscription(grant_id, url, actor='console'):
     url = validate_callback(url)
     grant = BotGrant.objects.select_for_update().select_related('user', 'bot').get(pk=grant_id)
     if not (grant.is_active and grant.user.is_active and grant.bot.is_active and 'events:read' in grant.scopes):
@@ -33,16 +33,16 @@ def set_subscription(grant_id, url):
         grant=grant,
         defaults={'url': url, 'grant_revision': grant.revision, 'is_active': True},
     )
-    AuditLog.objects.create(actor='console', action='subscription.set', target=str(subscription.pk))
+    AuditLog.objects.create(actor=actor, action='subscription.set', target=str(subscription.pk))
     return subscription
 
 
 @transaction.atomic
-def disable_subscription(grant_id):
+def disable_subscription(grant_id, actor='console'):
     subscription = HttpSubscription.objects.select_for_update().get(grant_id=grant_id)
     subscription.is_active = False
     subscription.save(update_fields=['is_active', 'updated_at'])
-    AuditLog.objects.create(actor='console', action='subscription.disable', target=str(subscription.pk))
+    AuditLog.objects.create(actor=actor, action='subscription.disable', target=str(subscription.pk))
 
 
 def subscription_is_current(subscription):

@@ -71,3 +71,25 @@ def test_invalid_callback(url):
 def test_missing_grant_command():
     with pytest.raises(CommandError):
         call_command('subscription', 'set', '99999', 'https://example.com/events')
+
+
+def test_management_subscription_isolation(grant):
+    from rest_framework.test import APIClient
+    client = APIClient()
+    grant.user.set_password('test-password-long')
+    grant.user.save()
+    client.force_authenticate(grant.user)
+    data = {'bot': grant.bot_id, 'url': 'https://example.com/hook', 'is_active': True, 'password': 'test-password-long'}
+    assert client.post('/api/v1/subscriptions/', data, format='json').status_code == 201
+    assert client.get('/api/v1/subscriptions/').json()[0]['is_current']
+    other = User.objects.create_user('other', password='test-password-long', role='Owner')
+    client.force_authenticate(other)
+    assert client.get('/api/v1/subscriptions/').json() == []
+    assert client.post('/api/v1/subscriptions/', data, format='json').status_code == 404
+    client.force_authenticate(grant.user)
+    data['password'] = 'wrong'
+    assert client.post('/api/v1/subscriptions/', data, format='json').status_code == 403
+    data['password'] = 'test-password-long'
+    data['is_active'] = False
+    assert client.post('/api/v1/subscriptions/', data, format='json').status_code == 204
+    assert not client.get('/api/v1/subscriptions/').json()[0]['is_current']

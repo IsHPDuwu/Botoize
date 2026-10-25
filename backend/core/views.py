@@ -1,9 +1,12 @@
+from datetime import datetime, timedelta
+from typing import cast
+
 from django.contrib.auth import authenticate, login, logout
 from django.middleware.csrf import get_token
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from django.db import transaction
-from django.db.models import F
+from django.db.models import Count, F
 from django.utils import timezone
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -14,6 +17,8 @@ from rest_framework import serializers
 from .models import User, Bot, BotGrant, ApiKey, AuditLog, Event, EventOutbox
 from .services import authorize, encrypt_secret, issue_key, validate_scopes
 from .official import get_self, send_message, MESSAGE_PATH, OfficialCredentialError
+from .models import HttpSubscription
+from .subscriptions import disable_subscription, set_subscription, subscription_is_current
 
 
 def fields(data, allowed, required=()):
@@ -65,6 +70,7 @@ class Auth(APIView):
             user = authenticate(request, username=request.data['username'], password=request.data['password'])
             if user is None:
                 raise PermissionDenied('Invalid credentials')
+            user = cast(User, user)
             login(request, user)
             return Response({'id': user.pk, 'username': user.username, 'role': user.role, 'csrfToken': get_token(request)})
         if action == 'logout':
@@ -133,6 +139,83 @@ class MyGrants(APIView):
         return Response([{'bot': bot_data(grant.bot), 'scopes': grant.scopes, 'revision': grant.revision} for grant in grants])
 
 
+class DashboardOverview(APIView):
+    def get(self, request):
+        raw_window = request.query_params.get('window_hours', '24')
+        if not raw_window.isascii() or not raw_window.isdigit() or len(raw_window) > 4:
+            raise ValidationError({'window_hours': 'Expected 24, 168, or 720'})
+        window_hours = int(raw_window)
+        if window_hours not in (24, 168, 720):
+            raise ValidationError({'window_hours': 'Expected 24, 168, or 720'})
+        now = timezone.now()
+        start = now - timedelta(hours=window_hours)
+
+        bots = Bot.objects.all()
+        outbox = EventOutbox.objects.select_related('event', 'grant', 'grant__user', 'grant__bot')
+        if request.user.role != 'Owner':
+            user_grants = list(BotGrant.objects.filter(
+                user=request.user, is_active=True, user__is_active=True, bot__is_active=True,
+            ))
+            visible_grants = [grant for grant in user_grants if 'events:read' in grant.scopes]
+            bots = bots.filter(botgrant__user=request.user, botgrant__is_active=True, botgrant__user__is_active=True)
+            outbox = outbox.filter(
+                grant_id__in=[grant.pk for grant in visible_grants],
+                grant_revision=F('grant__revision'),
+            )
+            visible_bot_ids = {grant.bot_id for grant in visible_grants}
+            event_count = Event.objects.filter(bot_id__in=visible_bot_ids, received_at__gte=start, received_at__lt=now).count()
+        else:
+            event_count = Event.objects.filter(received_at__gte=start, received_at__lt=now).count()
+        deliveries = outbox.filter(event__received_at__gte=start, event__received_at__lt=now)
+        status_counts = deliveries.values('state').annotate(total=Count('pk'))
+        by_state = {row['state']: row['total'] for row in status_counts}
+        response = Response({
+            'window_hours': window_hours,
+            'window_start': start,
+            'generated_at': now,
+            'bot_count': bots.distinct().count(),
+            'active_bot_count': bots.filter(is_active=True).distinct().count(),
+            'event_count': event_count,
+            'delivery_count': deliveries.count(),
+            'delivered_count': by_state.get('delivered', 0),
+            'pending_count': by_state.get('pending', 0),
+            'processing_count': by_state.get('processing', 0),
+            'failed_count': by_state.get('failed', 0),
+            'cancelled_count': by_state.get('cancelled', 0),
+        })
+        response['Cache-Control'] = 'no-store'
+        return response
+
+
+class Subscriptions(APIView):
+    def get(self, request):
+        rows = HttpSubscription.objects.filter(grant__user=request.user).select_related('grant__user', 'grant__bot')
+        return Response([{
+            'id': row.pk, 'bot': row.grant.bot.pk, 'url': row.url,
+            'is_active': row.is_active, 'is_current': subscription_is_current(row),
+            'grant_revision': row.grant_revision,
+        } for row in rows])
+
+    @transaction.atomic
+    def post(self, request):
+        fields(request.data, ['bot', 'url', 'is_active', 'password'], ['bot', 'is_active', 'password'])
+        reauthenticate(request)
+        active = request.data['is_active']
+        if type(active) is not bool:
+            raise ValidationError({'is_active': 'Boolean required'})
+        bot_id = serializers.IntegerField(min_value=1).run_validation(request.data['bot'])
+        grant = get_object_or_404(BotGrant.objects.select_for_update(), user=request.user, bot_id=bot_id)
+        if not active:
+            get_object_or_404(HttpSubscription.objects.select_for_update(), grant=grant)
+            disable_subscription(grant.pk, actor=request.user.username)
+            return Response(status=204)
+        try:
+            sub = set_subscription(grant.pk, request.data.get('url'), actor=request.user.username)
+        except ValueError as error:
+            raise ValidationError(str(error)) from None
+        return Response({'id': sub.pk, 'bot': bot_id, 'url': sub.url, 'grant_revision': sub.grant_revision}, status=201)
+
+
 class Keys(APIView):
     def get(self, request):
         return Response([key_data(k) for k in ApiKey.objects.filter(user=request.user)])
@@ -144,7 +227,7 @@ class Keys(APIView):
         scopes = validate_scopes(request.data['scopes'])
         name = serializers.CharField(max_length=120).run_validation(request.data['name'])
         expiry = serializers.DateTimeField(allow_null=True).run_validation(request.data.get('expires_at'))
-        if expiry and expiry <= timezone.now():
+        if isinstance(expiry, datetime) and expiry <= timezone.now():
             raise ValidationError({'expires_at': 'Must be in the future'})
         key, token = issue_key(request.user, bot, name, scopes, expiry)
         return Response({**key_data(key), 'token': token}, status=201)
@@ -186,7 +269,7 @@ class Capabilities(APIView):
         operations = ['GET /users/@me'] if 'query:read' in request.effective_scopes else []
         if 'messages:send' in request.effective_scopes:
             operations += ['POST /v2/users/{user_openid}/messages', 'POST /v2/groups/{group_openid}/messages']
-        return Response({'bot_id': request.auth.bot_id, 'scopes': request.effective_scopes, 'proxy_enabled': bool(operations), 'websocket_enabled': False, 'operations': operations})
+        return Response({'bot_id': request.auth.bot_id, 'scopes': request.effective_scopes, 'proxy_enabled': bool(operations), 'websocket_enabled': 'events:read' in request.effective_scopes, 'operations': operations})
 
 
 class ManagementEvents(APIView):
@@ -194,7 +277,7 @@ class ManagementEvents(APIView):
         before = request.query_params.get('before', '')
         if before and (not before.isascii() or not before.isdigit() or len(before) > 18):
             raise ValidationError({'before': 'Positive integer required'})
-        events = Event.objects.all()
+        events = Event.objects.select_related('bot')
         if request.user.role != 'Owner':
             snapshots = EventOutbox.objects.filter(
                 grant__user=request.user, grant__is_active=True,
@@ -208,9 +291,31 @@ class ManagementEvents(APIView):
         rows = list(events.order_by('-id')[:51])
         page = rows[:50]
         response = Response({
-            'events': [{'id': row.pk, 'bot': row.bot_id, 'event_id': row.event_id, 'event_type': row.event_type, 'received_at': row.received_at, 'payload': row.payload} for row in page],
+            'events': [{'id': row.pk, 'bot': row.bot.pk, 'event_id': row.event_id, 'event_type': row.event_type, 'received_at': row.received_at, 'payload': row.payload} for row in page],
             'next_before': str(page[-1].pk) if page else None, 'has_more': len(rows) > 50,
         })
+        response['Cache-Control'] = 'no-store'
+        return response
+
+
+class Deliveries(APIView):
+    def get(self, request):
+        before = request.query_params.get('before', '')
+        if before and (not before.isascii() or not before.isdigit() or len(before) > 18):
+            raise ValidationError({'before': 'Positive integer required'})
+        rows = EventOutbox.objects.all()
+        if request.user.role != 'Owner':
+            grants = [g.pk for g in BotGrant.objects.filter(user=request.user, is_active=True, bot__is_active=True) if 'events:read' in g.scopes]
+            rows = rows.filter(grant_id__in=grants, grant_revision=F('grant__revision'))
+        if before:
+            rows = rows.filter(pk__lt=int(before))
+        page = list(rows.select_related('event__bot', 'grant__user').order_by('-pk')[:51])
+        data = [{
+            'id': r.pk, 'event_id': r.event.event_id, 'bot': r.event.bot.pk,
+            'user': r.grant.user.pk, 'state': r.state, 'attempts': r.attempts,
+            'available_at': r.available_at, 'lease_until': r.lease_until,
+        } for r in page[:50]]
+        response = Response({'deliveries': data, 'has_more': len(page) > 50, 'next_before': str(page[min(len(page), 50) - 1].pk) if page else None})
         response['Cache-Control'] = 'no-store'
         return response
 
@@ -242,6 +347,18 @@ class RelayEvents(Capabilities):
 
 class Proxy(Capabilities):
     def post(self, request, path=''):
+        if request.path.startswith('/onebot/'):
+            from .onebot import invoke
+            if len(request.body) > 1048576:
+                return Response({'detail': 'Body too large'}, status=413)
+            if not isinstance(request.data, dict):
+                raise ValidationError('JSON object required')
+            if path == '':
+                fields(request.data, ['action', 'params', 'echo'], ['action'])
+                action, params = request.data['action'], request.data.get('params', {})
+            else:
+                action, params = path.rstrip('/'), request.data
+            return invoke(request.auth.bot, request.effective_scopes, action, params, request.data.get('echo') if path == '' else None)
         if not request.path.startswith('/qq/') or not MESSAGE_PATH.fullmatch(path):
             return self.denied(request, path)
         if 'messages:send' not in request.effective_scopes:

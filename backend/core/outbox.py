@@ -18,7 +18,7 @@ def valid_snapshot(row):
     )
 
 
-def claim_outbox(limit=100, lease_seconds=60, max_attempts=5):
+def claim_outbox(limit=100, lease_seconds=60, max_attempts=5, subscribed_only=False):
     """Claim with compare-and-swap; expired leases may be recovered."""
     if (
         type(limit) is not int or not 1 <= limit <= 1000
@@ -31,7 +31,13 @@ def claim_outbox(limit=100, lease_seconds=60, max_attempts=5):
         Q(state='pending') & (Q(available_at__isnull=True) | Q(available_at__lte=now))
         | Q(state='processing', lease_until__lte=now)
     )
-    ids = list(EventOutbox.objects.filter(eligible).order_by('pk').values_list('pk', flat=True)[:limit])
+    candidates = EventOutbox.objects.filter(eligible)
+    if subscribed_only:
+        candidates = candidates.filter(
+            grant__httpsubscription__is_active=True,
+            grant__httpsubscription__grant_revision=F('grant_revision'),
+        )
+    ids = list(candidates.order_by('pk').values_list('pk', flat=True)[:limit])
     claimed = []
     for pk in ids:
         token = uuid4()
@@ -44,8 +50,13 @@ def claim_outbox(limit=100, lease_seconds=60, max_attempts=5):
             state='processing', lease_token=token,
             lease_until=now + timedelta(seconds=lease_seconds), attempts=F('attempts') + 1,
         )
-        if updated and validate_lease(pk, token):
-            claimed.append((pk, token))
+        if updated:
+            if validate_lease(pk, token):
+                claimed.append((pk, token))
+            elif subscribed_only:
+                EventOutbox.objects.filter(pk=pk, state='processing', lease_token=token).update(
+                    state='cancelled', lease_token=None, lease_until=None, available_at=None,
+                )
     return claimed
 
 
