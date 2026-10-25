@@ -468,7 +468,11 @@ class Capabilities(APIView):
         if 'messages:send' in request.effective_scopes:
             operations += ['POST /v2/users/{user_openid}/messages', 'POST /v2/groups/{group_openid}/messages']
         if 'media:upload' in request.effective_scopes:
-            operations += ['POST /v2/users/{user_openid}/files', 'POST /v2/groups/{group_openid}/files']
+            operations += [
+                f'POST /v2/{kind}/{{{identifier}}}/{operation}'
+                for kind, identifier in [('users', 'user_openid'), ('groups', 'group_openid')]
+                for operation in ('files', 'upload_prepare', 'upload_part_finish')
+            ]
         return Response({'bot_id': request.auth.bot_id, 'scopes': request.effective_scopes, 'proxy_enabled': bool(operations), 'websocket_enabled': 'events:read' in request.effective_scopes, 'operations': operations})
 
 
@@ -629,7 +633,7 @@ class Proxy(DataPlaneAuditMixin, Capabilities):
             raise ValidationError('JSON object required')
         if 'bot_id' in request.data and str(request.data['bot_id']) != str(request.auth.bot_id):
             raise PermissionDenied('Bot mismatch')
-        if media_upload:
+        if media_upload and path.endswith('/files'):
             # Official uploads can also send messages; never allow that side effect
             # through an upload-only credential. Require an explicit choice.
             if type(request.data.get('srv_send_msg')) is not bool:

@@ -48,3 +48,16 @@ def test_upload_supports_idempotency_without_duplicate_side_effects(media_client
         for _ in range(2):
             assert client.post('/qq/v2/groups/target/files', {'srv_send_msg': False}, format='json', HTTP_IDEMPOTENCY_KEY='media-once').status_code == 200
         upstream.assert_called_once()
+
+
+@pytest.mark.parametrize('kind', ['users', 'groups'])
+@pytest.mark.parametrize('operation', ['upload_prepare', 'upload_part_finish'])
+def test_chunk_upload_control_plane_preserves_empty_and_signed_url_results(media_client, kind, operation):
+    client, _, _ = media_client
+    body = b'{"upload_id":"opaque","part_index":0}'
+    raw = b'{"parts":[{"presigned_url":"https://cos.example/upload?sign=secret"}]}' if operation == 'upload_prepare' else b''
+    with patch('core.views.upload_media', return_value=(200 if raw else 204, raw, {})) as upstream:
+        response = client.post(f'/qq/v2/{kind}/target/{operation}', body, content_type='application/json')
+    assert response.content == raw
+    assert response.status_code == (200 if raw else 204)
+    assert upstream.call_args.args[1:] == (f'v2/{kind}/target/{operation}', body, '')

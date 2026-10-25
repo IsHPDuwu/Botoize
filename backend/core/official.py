@@ -62,7 +62,7 @@ def get_self(bot, query=''):
 
 
 MESSAGE_PATH = re.compile(r'v2/(?:users|groups)/[A-Za-z0-9_-]{1,128}/messages')
-MEDIA_PATH = re.compile(r'v2/(?:users|groups)/[A-Za-z0-9_-]{1,128}/files')
+MEDIA_PATH = re.compile(r'v2/(?:users|groups)/[A-Za-z0-9_-]{1,128}/(?:files|upload_prepare|upload_part_finish)')
 
 
 def upload_media(bot, path, body, query=''):
