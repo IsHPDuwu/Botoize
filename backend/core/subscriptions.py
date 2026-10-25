@@ -37,17 +37,27 @@ def validate_callback(url):
 
 
 @transaction.atomic
-def set_subscription(grant_id, url, actor='console'):
+def set_subscription(grant_id, url, actor='console', callback_secret=None):
     url = validate_callback(url)
+    if callback_secret is not None and (
+        not isinstance(callback_secret, str) or not 32 <= len(callback_secret) <= 256
+    ):
+        raise ValueError('callback_secret must contain 32–256 characters')
     grant = BotGrant.objects.select_for_update().select_related('user', 'bot').get(pk=grant_id)
     if not (grant.is_active and grant.user.is_active and grant.bot.is_active and 'events:read' in grant.scopes):
         raise ValueError('Active events:read grant required')
+    existing = HttpSubscription.objects.filter(grant=grant).first()
+    encrypted = (
+        _encrypt_callback_secret(callback_secret) if callback_secret is not None
+        else existing.encrypted_callback_secret if existing
+        else _encrypt_callback_secret(secrets.token_urlsafe(32))
+    )
     subscription, _ = HttpSubscription.objects.update_or_create(
         grant=grant,
         defaults={
             'url': url,
             'grant_revision': grant.revision,
-            'encrypted_callback_secret': _encrypt_callback_secret(secrets.token_urlsafe(32)),
+            'encrypted_callback_secret': encrypted,
             'is_active': True,
         },
     )

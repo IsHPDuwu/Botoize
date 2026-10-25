@@ -73,6 +73,18 @@ def test_missing_grant_command():
         call_command('subscription', 'set', '99999', 'https://example.com/events')
 
 
+def test_callback_secret_configuration_and_preservation(grant):
+    from .subscriptions import decrypt_callback_secret
+    secret = 'known-secret-' + 'x' * 32
+    sub = set_subscription(grant.pk, 'https://example.com/events', callback_secret=secret)
+    assert decrypt_callback_secret(sub) == secret
+    assert secret not in sub.encrypted_callback_secret
+    sub = set_subscription(grant.pk, 'https://example.com/updated')
+    assert decrypt_callback_secret(sub) == secret
+    with pytest.raises(ValueError):
+        set_subscription(grant.pk, sub.url, callback_secret='short')
+
+
 def test_management_subscription_isolation(grant):
     from rest_framework.test import APIClient
     client = APIClient()

@@ -311,7 +311,7 @@ class Subscriptions(ManagementView):
 
     @transaction.atomic
     def post(self, request):
-        fields(request.data, ['bot', 'url', 'is_active', 'password'], ['bot', 'is_active', 'password'])
+        fields(request.data, ['bot', 'url', 'is_active', 'password', 'callback_secret'], ['bot', 'is_active', 'password'])
         reauthenticate(request)
         active = request.data['is_active']
         if type(active) is not bool:
@@ -323,7 +323,10 @@ class Subscriptions(ManagementView):
             disable_subscription(grant.pk, actor=request.user.username)
             return Response(status=204)
         try:
-            sub = set_subscription(grant.pk, request.data.get('url'), actor=request.user.username)
+            sub = set_subscription(
+                grant.pk, request.data.get('url'), actor=request.user.username,
+                callback_secret=request.data.get('callback_secret'),
+            )
         except ValueError as error:
             raise ValidationError(str(error)) from None
         return Response({'id': sub.pk, 'bot': bot_id, 'url': sub.url, 'grant_revision': sub.grant_revision}, status=201)
