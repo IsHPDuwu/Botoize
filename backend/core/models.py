@@ -135,3 +135,19 @@ class ThrottleCounter(models.Model):
     key = models.CharField(max_length=64, primary_key=True)
     window_started_at = models.DateTimeField(db_index=True)
     count = models.PositiveIntegerField(default=0)
+
+
+class IdempotentSend(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    bot = models.ForeignKey(Bot, on_delete=models.CASCADE)
+    key_digest = models.CharField(max_length=64)
+    request_digest = models.CharField(max_length=64)
+    state = models.CharField(max_length=16, default='processing')
+    encrypted_result = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField(db_index=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(
+            fields=['user', 'bot', 'key_digest'], name='unique_idempotent_send',
+        )]

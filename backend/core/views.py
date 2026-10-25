@@ -22,6 +22,7 @@ from .subscriptions import disable_subscription, set_subscription, subscription_
 from .request_context import DataPlaneAuditMixin
 from .invitations import accept_invitation, create_invitation
 from .replay import replay_delivery
+from .idempotency import SendConflict, complete_send, reserve_send, unknown_send
 from .throttle import LIMITS, RateLimitExceeded, bearer_throttle, limit_response, request_ip, throttle
 
 
@@ -568,13 +569,34 @@ class Proxy(DataPlaneAuditMixin, Capabilities):
             raise ValidationError('JSON object required')
         if 'bot_id' in request.data and str(request.data['bot_id']) != str(request.auth.bot_id):
             raise PermissionDenied('Bot mismatch')
+        reservation = None
+        cached = None
+        if 'Idempotency-Key' in request.headers:
+            try:
+                reservation, cached = reserve_send(
+                    request.auth, request.headers['Idempotency-Key'], path,
+                    request.META.get('QUERY_STRING', ''), raw,
+                )
+            except ValueError as error:
+                raise ValidationError(str(error)) from None
+            except SendConflict as error:
+                return Response({'code': error.code, 'source': 'platform'}, status=409)
         try:
-            status, body, headers = send_message(request.auth.bot, path, raw, request.META.get('QUERY_STRING', ''))
+            result = cached if cached is not None else send_message(
+                request.auth.bot, path, raw, request.META.get('QUERY_STRING', ''),
+            )
+            if reservation is not None and cached is None:
+                complete_send(reservation, result)
+            status, body, headers = result
         except OfficialCredentialError:
+            if reservation is not None:
+                unknown_send(reservation)
             return Response({'code': 'official_outcome_unknown', 'source': 'platform', 'detail': 'Send outcome unknown; do not blindly retry'}, status=502)
         response = HttpResponse(body, status=status)
         for name, value in headers.items():
             response[name] = value
+        if cached is not None:
+            response['Idempotency-Replayed'] = 'true'
         response['Cache-Control'] = 'no-store'
         return response
 
