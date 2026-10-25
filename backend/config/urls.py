@@ -9,6 +9,8 @@ urlpatterns = [
     path('api/v1/bots/', views.Bots.as_view()),
     path('api/v1/dashboard/overview/', views.DashboardOverview.as_view()),
     path('api/v1/users/', views.Users.as_view()),
+    path('api/v1/invitations/', views.Invitations.as_view()),
+    path('api/v1/invitations/accept/', views.AcceptInvitation.as_view()),
     path('api/v1/events/', views.ManagementEvents.as_view()),
     path('api/v1/deliveries/', views.Deliveries.as_view()),
     path('api/v1/api-calls/', views.ApiCalls.as_view()),

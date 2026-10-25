@@ -9,6 +9,15 @@ class User(AbstractUser):
     role = models.CharField(max_length=5, choices=Role.choices, default=Role.ADMIN)
 
 
+class Invitation(models.Model):
+    token_digest = models.CharField(max_length=64, unique=True)
+    created_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name='created_invitations')
+    expires_at = models.DateTimeField()
+    used_at = models.DateTimeField(null=True, blank=True)
+    accepted_by = models.OneToOneField(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='accepted_invitation')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
 class OwnerLock(models.Model):
     """Singleton serializes all supported console role mutations."""
     revision = models.PositiveBigIntegerField(default=0)

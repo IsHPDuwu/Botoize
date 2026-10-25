@@ -14,12 +14,13 @@ from rest_framework.authentication import BaseAuthentication, SessionAuthenticat
 from rest_framework.permissions import AllowAny
 from rest_framework.exceptions import PermissionDenied, ValidationError, AuthenticationFailed
 from rest_framework import serializers
-from .models import User, Bot, BotGrant, ApiKey, ApiCallAudit, AuditLog, Event, EventOutbox
+from .models import User, Bot, BotGrant, ApiKey, ApiCallAudit, AuditLog, Event, EventOutbox, Invitation
 from .services import authorize, encrypt_secret, issue_key, validate_scopes
 from .official import get_self, send_message, MESSAGE_PATH, OfficialCredentialError
 from .models import HttpSubscription
 from .subscriptions import disable_subscription, set_subscription, subscription_is_current
 from .request_context import DataPlaneAuditMixin
+from .invitations import accept_invitation, create_invitation
 
 
 def fields(data, allowed, required=()):
@@ -105,6 +106,51 @@ class Users(APIView):
     def get(self, request):
         owner(request)
         return Response(list(User.objects.order_by('username').values('id', 'username', 'role', 'is_active')))
+
+
+class Invitations(APIView):
+    def get(self, request):
+        owner(request)
+        rows = Invitation.objects.order_by('-pk')
+        return Response([{
+            'id': row.pk,
+            'expires_at': row.expires_at,
+            'used_at': row.used_at,
+            'accepted_by': row.accepted_by_id,
+            'created_at': row.created_at,
+        } for row in rows])
+
+    def post(self, request):
+        owner(request)
+        fields(request.data, ['expires_hours', 'password'], ['password'])
+        reauthenticate(request)
+        try:
+            lifetime = serializers.IntegerField(min_value=1, max_value=720).run_validation(
+                request.data.get('expires_hours', 72),
+            )
+            invitation, token = create_invitation(request.user, lifetime)
+        except (ValueError, PermissionError) as error:
+            raise ValidationError(str(error)) from None
+        return Response({
+            'id': invitation.pk,
+            'token': token,
+            'expires_at': invitation.expires_at,
+        }, status=201)
+
+
+class AcceptInvitation(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        fields(request.data, ['token', 'username', 'password', 'email'], ['token', 'username', 'password'])
+        try:
+            user = accept_invitation(
+                request.data['token'], request.data['username'], request.data['password'], request.data.get('email', ''),
+            )
+        except ValueError as error:
+            raise ValidationError(str(error)) from None
+        return Response({'id': user.pk, 'username': user.username, 'role': user.role}, status=201)
 
 
 class Grants(APIView):
