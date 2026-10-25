@@ -111,7 +111,9 @@ def deliver_batch(limit=20):
             error_code='worker_lost',
             finished_at=timezone.now(),
         )
-        attempt = DeliveryAttempt.objects.create(outbox=row, attempt_number=row.attempts)
+        attempt = DeliveryAttempt.objects.create(
+            outbox=row, generation=row.attempt_generation, attempt_number=row.attempts,
+        )
         status = None
         error_code = ''
         try:

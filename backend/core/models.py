@@ -72,6 +72,7 @@ class EventOutbox(models.Model):
     lease_token = models.UUIDField(null=True, editable=False)
     lease_until = models.DateTimeField(null=True)
     attempts = models.PositiveIntegerField(default=0)
+    attempt_generation = models.PositiveIntegerField(default=1)
     available_at = models.DateTimeField(null=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -89,6 +90,7 @@ class DeliveryAttempt(models.Model):
         CANCELLED = 'cancelled'
 
     outbox = models.ForeignKey(EventOutbox, on_delete=models.CASCADE, related_name='delivery_attempts')
+    generation = models.PositiveIntegerField(default=1)
     attempt_number = models.PositiveIntegerField()
     state = models.CharField(max_length=12, choices=State.choices, default=State.PROCESSING)
     http_status = models.PositiveSmallIntegerField(null=True, blank=True)
@@ -97,7 +99,7 @@ class DeliveryAttempt(models.Model):
     finished_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        constraints = [models.UniqueConstraint(fields=['outbox', 'attempt_number'], name='unique_delivery_attempt_number')]
+        constraints = [models.UniqueConstraint(fields=['outbox', 'generation', 'attempt_number'], name='unique_delivery_attempt_generation_number')]
         indexes = [models.Index(fields=['outbox', 'id'], name='delivery_attempt_scan')]
 
 

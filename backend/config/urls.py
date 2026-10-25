@@ -15,6 +15,7 @@ urlpatterns = [
     path('api/v1/events/', views.ManagementEvents.as_view()),
     path('api/v1/deliveries/', views.Deliveries.as_view()),
     path('api/v1/deliveries/<int:pk>/attempts/', views.DeliveryAttempts.as_view()),
+    path('api/v1/deliveries/<int:pk>/replay/', views.ReplayDelivery.as_view()),
     path('api/v1/api-calls/', views.ApiCalls.as_view()),
     path('api/v1/grants/', views.Grants.as_view()),
     path('api/v1/my-grants/', views.MyGrants.as_view()),

@@ -21,6 +21,7 @@ from .models import HttpSubscription
 from .subscriptions import disable_subscription, set_subscription, subscription_is_current
 from .request_context import DataPlaneAuditMixin
 from .invitations import accept_invitation, create_invitation
+from .replay import replay_delivery
 
 
 def fields(data, allowed, required=()):
@@ -425,10 +426,26 @@ class DeliveryAttempts(APIView):
         if not rows.exists():
             return Response({'detail': 'Not found'}, status=404)
         return Response([{
-            'id': row.pk, 'attempt_number': row.attempt_number, 'state': row.state,
+            'id': row.pk, 'generation': row.generation, 'attempt_number': row.attempt_number, 'state': row.state,
             'http_status': row.http_status, 'error_code': row.error_code,
             'started_at': row.started_at, 'finished_at': row.finished_at,
-        } for row in rows.order_by('attempt_number')])
+        } for row in rows.order_by('generation', 'attempt_number')])
+
+
+class ReplayDelivery(APIView):
+    def post(self, request, pk):
+        fields(request.data, ['password'], ['password'])
+        reauthenticate(request)
+        try:
+            row = replay_delivery(pk, request.user)
+        except LookupError:
+            return Response({'detail': 'Not found'}, status=404)
+        except ValueError as error:
+            raise ValidationError(str(error)) from None
+        return Response({
+            'id': row.pk, 'state': row.state, 'attempt_generation': row.attempt_generation,
+            'warning': 'Replay may deliver the event more than once; consumers must deduplicate.',
+        }, status=202)
 
 
 class ApiCalls(APIView):

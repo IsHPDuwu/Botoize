@@ -10,7 +10,8 @@ from rest_framework.test import APIClient
 
 from .delivery import UnsafeDestination, deliver_batch, post_event, resolve_public
 from .events import ingest_event
-from .models import Bot, BotGrant, DeliveryAttempt, EventOutbox, User
+from .models import AuditLog, Bot, BotGrant, DeliveryAttempt, EventOutbox, User
+from .replay import replay_delivery
 from .subscriptions import decrypt_callback_secret, set_subscription
 
 pytestmark = pytest.mark.django_db
@@ -152,10 +153,46 @@ def test_delivery_attempt_history_isolated():
     other = User.objects.create_user('delivery-history-other')
     client.force_authenticate(other)
     assert client.get(f'/api/v1/deliveries/{row.pk}/attempts/').status_code == 404
-    client.force_authenticate(grant.user)
+
+
+def test_failed_delivery_can_be_replayed_with_new_generation():
+    grant, row = queued()
+    with patch('core.delivery.post_event', return_value=False):
+        assert deliver_batch()['retry_or_failed'] == 1
+    row.refresh_from_db()
+    row.attempts = 5
+    row.save(update_fields=['attempts'])
+    # Drive a failure through the ordinary worker until the terminal state.
+    with patch('core.delivery.post_event', return_value=False):
+        for _ in range(4):
+            EventOutbox.objects.filter(pk=row.pk).update(available_at=None, state='pending')
+            deliver_batch()
+    row.refresh_from_db()
+    assert row.state == 'failed'
+    response = APIClient()
+    response.force_authenticate(grant.user)
+    replay = response.post(f'/api/v1/deliveries/{row.pk}/replay/', {'password': 'unused'}, format='json')
+    assert replay.status_code == 403
+    grant.user.set_password('replay-password-long')
+    grant.user.save()
+    replay = response.post(f'/api/v1/deliveries/{row.pk}/replay/', {'password': 'replay-password-long'}, format='json')
+    assert replay.status_code == 202
+    assert replay.json()['attempt_generation'] == 2
+    assert 'more than once' in replay.json()['warning']
+    row.refresh_from_db()
+    assert row.state == 'pending' and row.attempts == 0 and row.attempt_generation == 2
+    assert AuditLog.objects.filter(action='delivery.replay', target=str(row.pk)).exists()
+
+
+def test_replay_rechecks_current_authorization_and_subscription():
+    grant, row = queued()
+    EventOutbox.objects.filter(pk=row.pk).update(state='failed', attempts=5)
     grant.revision += 1
     grant.save()
-    assert client.get('/api/v1/deliveries/').json()['deliveries'] == []
+    with pytest.raises(ValueError, match='not currently replayable'):
+        replay_delivery(row.pk, grant.user)
+    row.refresh_from_db()
+    assert row.state == 'failed'
 
 
 def test_websocket_page_checks_live_database_authorization():
