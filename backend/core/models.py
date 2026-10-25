@@ -84,3 +84,15 @@ class AuditLog(models.Model):
     action = models.CharField(max_length=80)
     target = models.CharField(max_length=150)
     created_at = models.DateTimeField(auto_now_add=True)
+
+
+class ApiCallAudit(models.Model):
+    api_key = models.ForeignKey(ApiKey, on_delete=models.SET_NULL, null=True, blank=True)
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    bot = models.ForeignKey(Bot, on_delete=models.SET_NULL, null=True, blank=True)
+    request_id = models.CharField(max_length=64, db_index=True)
+    method = models.CharField(max_length=10)
+    path = models.CharField(max_length=512)
+    status_code = models.PositiveSmallIntegerField()
+    duration_ms = models.PositiveIntegerField()
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)

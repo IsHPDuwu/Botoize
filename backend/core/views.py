@@ -14,11 +14,12 @@ from rest_framework.authentication import BaseAuthentication, SessionAuthenticat
 from rest_framework.permissions import AllowAny
 from rest_framework.exceptions import PermissionDenied, ValidationError, AuthenticationFailed
 from rest_framework import serializers
-from .models import User, Bot, BotGrant, ApiKey, AuditLog, Event, EventOutbox
+from .models import User, Bot, BotGrant, ApiKey, ApiCallAudit, AuditLog, Event, EventOutbox
 from .services import authorize, encrypt_secret, issue_key, validate_scopes
 from .official import get_self, send_message, MESSAGE_PATH, OfficialCredentialError
 from .models import HttpSubscription
 from .subscriptions import disable_subscription, set_subscription, subscription_is_current
+from .request_context import DataPlaneAuditMixin
 
 
 def fields(data, allowed, required=()):
@@ -320,7 +321,32 @@ class Deliveries(APIView):
         return response
 
 
-class RelayEvents(Capabilities):
+class ApiCalls(APIView):
+    def get(self, request):
+        before = request.query_params.get('before', '')
+        if before and (not before.isascii() or not before.isdigit() or len(before) > 18):
+            raise ValidationError({'before': 'Positive integer required'})
+        rows = ApiCallAudit.objects.all()
+        if request.user.role != 'Owner':
+            rows = rows.filter(user=request.user)
+        if before:
+            rows = rows.filter(pk__lt=int(before))
+        page = list(rows.order_by('-pk')[:51])
+        response = Response({
+            'calls': [{
+                'id': row.pk, 'request_id': row.request_id, 'bot': row.bot_id,
+                'api_key': row.api_key_id, 'method': row.method, 'path': row.path,
+                'status_code': row.status_code, 'duration_ms': row.duration_ms,
+                'created_at': row.created_at,
+            } for row in page[:50]],
+            'has_more': len(page) > 50,
+            'next_before': str(page[49].pk) if len(page) > 49 else None,
+        })
+        response['Cache-Control'] = 'no-store'
+        return response
+
+
+class RelayEvents(DataPlaneAuditMixin, Capabilities):
     def get(self, request):
         if 'events:read' not in request.effective_scopes:
             raise PermissionDenied('events:read required')
@@ -345,7 +371,7 @@ class RelayEvents(Capabilities):
         return response
 
 
-class Proxy(Capabilities):
+class Proxy(DataPlaneAuditMixin, Capabilities):
     def post(self, request, path=''):
         if request.path.startswith('/onebot/'):
             from .onebot import invoke
