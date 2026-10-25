@@ -151,3 +151,23 @@ class IdempotentSend(models.Model):
         constraints = [models.UniqueConstraint(
             fields=['user', 'bot', 'key_digest'], name='unique_idempotent_send',
         )]
+
+
+class QuotaPolicy(models.Model):
+    scope = models.CharField(max_length=10, choices=[('platform', 'Platform'), ('bot', 'Bot'), ('user', 'User'), ('key', 'Key')])
+    subject_id = models.PositiveBigIntegerField(default=0)
+    window_seconds = models.PositiveIntegerField(default=86400)
+    limit = models.PositiveIntegerField()
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['scope', 'subject_id', 'window_seconds'], name='unique_quota_policy')]
+
+
+class QuotaUsage(models.Model):
+    policy = models.ForeignKey(QuotaPolicy, on_delete=models.CASCADE)
+    window = models.PositiveBigIntegerField()
+    count = models.PositiveBigIntegerField(default=0)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['policy', 'window'], name='unique_quota_window')]

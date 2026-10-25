@@ -18,11 +18,13 @@ from .models import User, Bot, BotGrant, ApiKey, ApiCallAudit, AuditLog, Deliver
 from .services import authorize, encrypt_secret, issue_key, rotate_key, update_bot, validate_scopes
 from .official import get_self, send_message, MESSAGE_PATH, OfficialCredentialError
 from .models import HttpSubscription
+from .models import QuotaPolicy, QuotaUsage
 from .subscriptions import disable_subscription, set_subscription, subscription_is_current
 from .request_context import DataPlaneAuditMixin
 from .invitations import accept_invitation, create_invitation
 from .replay import replay_delivery
 from .idempotency import SendConflict, complete_send, reserve_send, unknown_send
+from .quotas import consume_quota
 from .throttle import LIMITS, RateLimitExceeded, bearer_throttle, limit_response, request_ip, throttle
 
 
@@ -147,6 +149,59 @@ class Users(ManagementView):
     def get(self, request):
         owner(request)
         return Response(list(User.objects.order_by('username').values('id', 'username', 'role', 'is_active')))
+
+
+class Quotas(ManagementView):
+    def get(self, request):
+        owner(request)
+        now = int(timezone.now().timestamp())
+        data = []
+        for policy in QuotaPolicy.objects.order_by('pk'):
+            window = now // policy.window_seconds
+            count = QuotaUsage.objects.filter(policy=policy, window=window).values_list('count', flat=True).first() or 0
+            data.append({
+                'id': policy.pk, 'scope': policy.scope, 'subject_id': policy.subject_id,
+                'window_seconds': policy.window_seconds, 'limit': policy.limit,
+                'is_active': policy.is_active, 'used': count,
+                'resets_at': (window + 1) * policy.window_seconds,
+            })
+        response = Response(data)
+        response['Cache-Control'] = 'no-store'
+        return response
+
+    @transaction.atomic
+    def post(self, request):
+        owner(request)
+        fields(request.data, ['scope', 'subject_id', 'window_seconds', 'limit', 'is_active', 'password'],
+               ['scope', 'subject_id', 'window_seconds', 'limit', 'password'])
+        reauthenticate(request)
+        scope = request.data['scope']
+        if scope not in ('platform', 'bot', 'user', 'key'):
+            raise ValidationError({'scope': 'Invalid quota scope'})
+        for field in ('subject_id', 'window_seconds', 'limit'):
+            if type(request.data[field]) is not int:
+                raise ValidationError({field: 'Integer required'})
+        subject_id = request.data['subject_id']
+        window = request.data['window_seconds']
+        limit = request.data['limit']
+        if window not in (60, 3600, 86400) or not 0 <= limit <= 1_000_000_000:
+            raise ValidationError('Window must be 60, 3600 or 86400; limit must be 0–1000000000')
+        active = request.data.get('is_active', True)
+        if type(active) is not bool:
+            raise ValidationError({'is_active': 'Boolean required'})
+        if scope == 'platform':
+            if subject_id != 0:
+                raise ValidationError({'subject_id': 'Platform subject must be 0'})
+        else:
+            if subject_id < 1:
+                raise ValidationError({'subject_id': 'Positive ID required'})
+            get_object_or_404({'bot': Bot, 'user': User, 'key': ApiKey}[scope], pk=subject_id)
+        policy, created = QuotaPolicy.objects.update_or_create(
+            scope=scope, subject_id=subject_id, window_seconds=window,
+            defaults={'limit': limit, 'is_active': active},
+        )
+        AuditLog.objects.create(actor=request.user.username, action='quota.update', target=str(policy.pk))
+        return Response({'id': policy.pk}, status=201 if created else 200)
 
 
 class UserLifecycle(ManagementView):
@@ -401,6 +456,7 @@ class Bearer(BaseAuthentication):
         request.effective_scopes = scopes
         if not bearer_throttle(key):
             raise RateLimitExceeded()
+        consume_quota(key)
         return key.user, key
 
 

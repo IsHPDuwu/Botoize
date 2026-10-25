@@ -95,6 +95,17 @@ scope 登记不表示所有同类官方操作均已实现。统一 services.auth
 
 ## 验证与边界
 
+### 可配置共享请求配额
+
+Owner 使用 `GET /api/v1/quotas/` 查看策略、当前用量及 Unix 秒重置时间；
+`POST /api/v1/quotas/` 设置 scope（platform/bot/user/key）、subject_id、window_seconds、limit、password，可选 is_active。
+platform 的 subject_id 固定为 0，其余为对应数据库对象 ID；窗口允许 60/3600/86400 秒，按 Unix 时间对齐。
+相同作用域、目标和窗口更新原策略，不清空用量。limit=0 禁止请求，is_active=false 暂停该策略。
+策略默认不存在（不额外限制），固定防滥用限流仍生效；多个匹配策略同时约束请求。
+每个已通过 Bearer 鉴权和固定限流的 HTTP 请求计一次，包含能力查询、事件拉取、失败响应及幂等缓存命中，不代表官方成功消息数。
+数据库条件更新防止共享额度超发，任一策略拒绝则事务回滚该请求的全部配额扣减；返回 429、quota_exceeded 和 Retry-After。
+此配额覆盖 HTTP 数据面，不计官方 Webhook 接收、worker 投递或 WS 帧；不是 QQ 官方额度的替代品。
+
 在 backend 目录运行 `uv run --locked pytest`，并运行
 `uv run --locked python manage.py check --settings=config.test_settings` 和
 `uv run --locked python manage.py makemigrations --check --dry-run --settings=config.test_settings`。
