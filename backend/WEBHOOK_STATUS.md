@@ -22,7 +22,9 @@ Outbox 现有内部租约原语：`claim_outbox` 使用条件更新领取 pendin
 
 订阅配置现可通过服务器控制台管理：`manage.py subscription set <grant_id> <https_url>` 设置或更新、`manage.py subscription disable <grant_id>` 禁用。每个授权最多一个订阅，记录当前授权版本，并写入审计；授权版本变化后旧订阅不再有效，须明确重新配置。不提供 Web/API 管理。地址只允许 HTTPS 默认端口或 443，拒绝内嵌凭据、片段及空白字符。此处仅保存配置，不发起网络请求；这不是完整的 SSRF 防护，实际发送实现仍须校验解析 IP、阻止私网/保留地址、固定连接目标并禁用重定向，不能直接把保存的 URL 交给通用 HTTP 客户端。
 
-尚未实现下游主动推送工作进程、订阅 Web/API 管理和真实官方回调联调；默认时间窗可能拒绝官方长延迟重试，生产策略需联调确定。当前不应视为可生产部署。
+现已提供 `deliver_outbox --limit 20` 有限批次投递命令；须由外部调度器重复执行。仅领取具有当前有效订阅版本的快照，不消耗未订阅快照的尝试次数。每次发送前校验授权，采用固定公共 IP 的 HTTPS 连接并验证原域名证书，不跟随重定向。回调使用原始事件 JSON 和稳定的 `X-QQ-Proxy-Delivery-ID`；2xx 确认后标记 delivered，其余进入退避。
+
+管理 API `/api/v1/subscriptions/` 已接入订阅页面；`/api/v1/deliveries/` 提供实际投递状态。下游 WS 事件流见 `PROXY_SUPPORT.md`。详细运行与外部验收见 `DEPLOYMENT.md`。上文“尚未接入网络工作进程”和“未提供 Web/API”仅描述此前基础版本，现已由本段更新；回调签名认证、真实官方联调与 PostgreSQL 压测仍未完成。默认时间窗可能拒绝官方长延迟重试，生产策略需联调确定。当前不应视为可生产部署。
 
 来源：
 - https://bot.q.qq.com/wiki/develop/api-v2/dev-prepare/interface-framework/sign.html

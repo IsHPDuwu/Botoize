@@ -1,4 +1,7 @@
-# 授权底座（未实现官方代理）
+# 管理与授权 API
+
+本文描述授权接口；数据面以 `PROXY_SUPPORT.md`、`WEBHOOK_STATUS.md` 为准，
+部署入口见 `DEPLOYMENT.md`。已实现的有限代理能力不等于全量官方 API 兼容。
 
 ## 启动与配置
 
@@ -62,21 +65,28 @@ Admin 账号暂由可信控制台通过 ORM 创建，默认 role=Admin；邀请�
   必须有显式有效 BotGrant，包括 Owner；201 响应的 token 仅此一次展示。
 - POST `/api/v1/keys/{id}/revoke/`：仅自己，password。
 - POST `/api/v1/owner/keys/{id}/revoke/`：Owner 可撤销他人 Key，password。
+- GET `/api/v1/my-grants/`：自己的当前有效 Bot、scopes 与 revision。
+- GET `/api/v1/subscriptions/`：自己的 HTTP 订阅及 is_current，不返回其他用户配置。
+- POST `/api/v1/subscriptions/`：bot,is_active,password；启用时必须有 url。
+  需要自己的显式 Grant，包括 Owner。启用检查 events:read；禁用可清理失效订阅。
+- GET `/api/v1/events/?before=CURSOR`：已入库事件，最多 50 条。
+- GET `/api/v1/deliveries/?before=CURSOR`：真实投递状态、尝试次数、重试与租约时间，最多 50 条。
+  Owner 全局可见，Admin 仅见自身当前版本且具有 events:read 的授权快照。
 
 写接口严格拒绝未登记字段。没有修改 Key 的接口，因此不能换绑 Bot/user。
 管理 API 未认证为 403（DRF Session 语义），不可见对象为 404。
 
 数据端仅接受 Authorization: Bearer TOKEN，不接受管理 Session 替代：
 
-- GET `/relay/v1/capabilities/`：唯一 bot_id、当前交集 scopes，operations 为空，
-  proxy_enabled/websocket_enabled 均为 false。可选查询 bot_id 必须一致。
-- `/qq/*`、`/onebot/*`：有效鉴权后返回 501、code=proxy_not_available、source=platform。
-  请求 JSON 中 bot_id 如存在也必须一致。没有实际发往官方的请求。
+- GET `/relay/v1/capabilities/`：唯一 bot_id、当前交集 scopes 和可执行的官方 operations；
+  websocket_enabled 表示 Key 是否具备原生事件流权限。可选查询 bot_id 必须一致。
+- 已登记的 `/qq/*` 和 `/onebot/*` 动作真实调用官方 API，其余官方路径返回 501；
+  OneBot 未支持的 POST action 返回 retcode=1404。支持范围见 `PROXY_SUPPORT.md`。
 
 登记 scope：events:read、messages:send、media:upload、query:read。
-scope 仅为授权底座登记，不表示相应官方操作已经实现。统一 services.authorize 在每次
+scope 登记不表示所有同类官方操作均已实现。统一 services.authorize 在每次
 调用检查账号/Bot/Key 有效性、期限、Grant revision 与 scope 交集；未来操作必须调用它
-并指定 scope 和 bot_id。当前无任何可执行代理操作，故不虚构端点/scope 映射。
+并指定 scope 和 bot_id。实际端点/scope 映射见 `PROXY_SUPPORT.md`。
 
 ## 验证与边界
 
@@ -86,7 +96,8 @@ scope 仅为授权底座登记，不表示相应官方操作已经实现。统�
 pytest.ini 指向独立 test_settings（测试专用 SQLite、
 快速密码哈希和固定测试密钥，严禁部署）。初始迁移已提交。
 
-未实现：邀请、配额、登录防爆破、统一 request_id/错误包装、分页/OpenAPI、
-官方 Token/Webhook/HTTP 代理、WS、OneBot、事件/任务/跨进程失效通知、密钥轮换。
-没有长连接或待执行队列，当前撤销通过每次 HTTP 查询数据库生效。
+未实现：邀请、配额、登录防爆破、统一 request_id/错误包装、完整 OpenAPI、
+全量官方 API、官方 Gateway、完整 OneBot、跨进程即时失效通知和密钥轮换。
+HTTP 查询、队列发送前和 WS 每批次均查询数据库检查授权；不是原子网络撤回，
+已经发出的请求不能撤销，WS 撤权存在轮询间隔。
 审计覆盖 Owner 命令及 Bot/Grant/Key 写操作，不是完整审计平台。
