@@ -15,6 +15,7 @@ def main():
         f'DJANGO_SECRET_KEY={secrets.token_urlsafe(64)}\n'
         f'BOT_ENCRYPTION_KEY={Fernet.generate_key().decode()}\n'
         'DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1\n'
+        'CSRF_TRUSTED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173\n'
     )
     try:
         fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)

@@ -18,7 +18,7 @@ export function SubscriptionsPage() {
   const grants = useQQMyGrants();
   const { data: subscriptions, error, isLoading, isValidating, mutate: reloadSubscriptions } = useQQSubscriptions();
   const [botId, setBotId] = useState("");
-  const [url, setUrl] = useState("");
+  const [urlDraft, setUrl] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
@@ -26,7 +26,8 @@ export function SubscriptionsPage() {
   const eligibleGrants = (grants.data ?? []).filter((grant) => grant.scopes.includes("events:read"));
   const selectedGrant = eligibleGrants.find((grant) => String(grant.bot?.id) === botId);
   const selectedSubscription = subscriptions?.find((item) => String(item.bot) === botId);
-  const displayedUrl = url || selectedSubscription?.url || "";
+  const url = urlDraft || selectedSubscription?.url || "";
+  const displayedUrl = url;
 
   async function save(active: boolean) {
     if (!botId) return;
