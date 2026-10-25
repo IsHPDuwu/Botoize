@@ -1,0 +1,255 @@
+import { useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import useSWR from 'swr'
+import { Search } from 'lucide-react'
+import { toast } from 'sonner'
+import { ModelBadge } from '@/components/ModelBadge'
+import { StackedModelList } from '@/components/StackedModelList'
+import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { SegmentedControl } from '@/components/ui/segmented-control'
+import { api } from '@/lib/api'
+import type { FetchChannelModelsInput, ModelMetadataRecord, ModelPriceRecord } from '@/lib/api'
+import {
+	buildPricedModelIdSet,
+	hasBillablePricingModelId
+} from './shared'
+
+type ModelPickerDialogProps = {
+	open: boolean
+	onOpenChange: (open: boolean) => void
+	channelInfo?: FetchChannelModelsInput
+	providerName: string
+	existingModels: string[]
+	modelMetadata: ModelMetadataRecord[]
+	modelPrices: ModelPriceRecord[]
+	reasoningSuffixMap: Record<string, string>
+	onConfirm: (checkedModels: string[]) => void
+}
+
+type FetchModelsKey = readonly [
+	'channel-models',
+	FetchChannelModelsInput['provider_type'],
+	string,
+	string,
+	string,
+	string
+]
+
+const PICKER_TABS = ['new', 'existing'] as const
+type PickerTab = (typeof PICKER_TABS)[number]
+
+export function ModelPickerDialog({
+	open,
+	onOpenChange,
+	...props
+}: ModelPickerDialogProps) {
+	return (
+		<Dialog open={open} onOpenChange={onOpenChange}>
+			{open ? <ModelPickerDialogContent onOpenChange={onOpenChange} {...props} /> : null}
+		</Dialog>
+	)
+}
+
+function ModelPickerDialogContent({
+	onOpenChange,
+	channelInfo,
+	providerName,
+	existingModels,
+	modelMetadata,
+	modelPrices,
+	reasoningSuffixMap,
+	onConfirm
+}: Omit<ModelPickerDialogProps, 'open'>) {
+	const { t } = useTranslation()
+	const [checked, setChecked] = useState<Set<string>>(
+		() => new Set(existingModels)
+	)
+	const [search, setSearch] = useState('')
+	const [tab, setTab] = useState<PickerTab>('new')
+
+	const fetchKey =
+		channelInfo ?
+				([
+					'channel-models',
+					channelInfo.provider_type,
+					channelInfo.base_url,
+					channelInfo.api_key ?? '',
+					channelInfo.provider_id ?? '',
+					channelInfo.channel_id ?? ''
+				] as FetchModelsKey)
+			: null
+
+	const { data: fetched = { models: [] as string[] }, isLoading: loading } = useSWR(
+		fetchKey,
+		async (key: FetchModelsKey) => {
+			return api.fetchChannelModels({
+				provider_type: key[1],
+				base_url: key[2],
+				api_key: key[3] || undefined,
+				provider_id: key[4] || undefined,
+				channel_id: key[5] || undefined
+			})
+		},
+		{
+			revalidateOnFocus: false,
+			onError: error => {
+				toast.error(
+					error instanceof Error ?
+						error.message
+					: t('providers.fetchModelsError')
+				)
+			}
+		}
+	)
+
+	const existingSet = useMemo(() => new Set(existingModels), [existingModels])
+
+	const fetchedModels = fetched.models ?? []
+	const compactScheme = fetched.compact_scheme
+
+	const newModels = useMemo(
+		() => fetchedModels.filter(model => !existingSet.has(model)),
+		[fetchedModels, existingSet]
+	)
+
+	const displayModels = tab === 'new' ? newModels : existingModels
+
+	const filtered = useMemo(() => {
+		if (!search.trim()) return displayModels
+		const q = search.toLowerCase()
+		return displayModels.filter(model => model.toLowerCase().includes(q))
+	}, [displayModels, search])
+
+	const modelProviderMap = useMemo(() => {
+		const map = new Map<string, string | undefined>()
+		for (const item of modelMetadata) {
+			map.set(item.model_id, item.models_dev_provider)
+		}
+		return map
+	}, [modelMetadata])
+
+	const pricedModelIdSet = useMemo(
+		() => buildPricedModelIdSet(modelPrices),
+		[modelPrices]
+	)
+
+	const toggleModel = (model: string) => {
+		setChecked(prev => {
+			const next = new Set(prev)
+			if (next.has(model)) next.delete(model)
+			else next.add(model)
+			return next
+		})
+	}
+
+	const hasChanges = useMemo(() => {
+		if (checked.size !== existingSet.size) return true
+		for (const model of checked) {
+			if (!existingSet.has(model)) return true
+		}
+		return false
+	}, [checked, existingSet])
+
+	const handleConfirm = () => {
+		onConfirm([...checked])
+		onOpenChange(false)
+	}
+
+	return (
+		<DialogContent className='max-h-[85vh] flex flex-col overflow-hidden max-w-4xl'>
+			<DialogHeader>
+				<div className='flex flex-wrap items-center justify-between gap-3 pr-8'>
+					<DialogTitle>{t('providers.selectModels')}</DialogTitle>
+					<SegmentedControl
+						value={tab}
+						options={PICKER_TABS}
+						onChange={setTab}
+						ariaLabel={t('providers.selectModels')}
+						label={option =>
+							option === 'new' ?
+								`${t('providers.newModels')} (${newModels.length})`
+							:	`${t('providers.existingModels')} (${existingModels.length})`
+						}
+					/>
+				</div>
+				<DialogDescription>
+					{providerName}
+					{compactScheme === 'openai_compact_sibling'
+						? ` — ${t('providers.compactSchemeSibling')}`
+						: compactScheme === 'same_model'
+							? ` — ${t('providers.compactSchemeSame')}`
+							: ''}
+				</DialogDescription>
+			</DialogHeader>
+
+			<div className='flex flex-col gap-4'>
+				<div className='relative'>
+					<Search className='absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground' />
+					<Input
+						className='pl-10'
+						placeholder={t('providers.searchModels')}
+						value={search}
+						onChange={event => setSearch(event.target.value)}
+					/>
+				</div>
+
+				<StackedModelList listClassName='max-h-none h-[clamp(220px,45vh,420px)] gap-2'>
+					{loading ?
+						<div className='w-full text-sm text-muted-foreground py-8 text-center'>
+							{t('providers.fetchingModels')}
+						</div>
+					: filtered.length === 0 ?
+							<div className='w-full text-sm text-muted-foreground py-8 text-center'>
+								{t('providers.noNewModels')}
+							</div>
+					:	filtered.map(model => {
+							const provider = modelProviderMap.get(model)
+							return (
+								<label
+									key={model}
+									className='inline-flex items-center gap-2 cursor-pointer'
+								>
+									<Checkbox
+										checked={checked.has(model)}
+										onCheckedChange={() => toggleModel(model)}
+									/>
+									<ModelBadge
+										model={model}
+										provider={provider}
+										highlightUnpriced={
+											!hasBillablePricingModelId(
+												pricedModelIdSet,
+												model,
+												null,
+												reasoningSuffixMap
+											)
+										}
+									/>
+								</label>
+							)
+						})
+					}
+				</StackedModelList>
+			</div>
+
+			<DialogFooter>
+				<Button variant='outline' onClick={() => onOpenChange(false)}>
+					{t('common.cancel')}
+				</Button>
+				<Button onClick={handleConfirm} disabled={!hasChanges}>
+					{t('providers.confirmAdd')}
+				</Button>
+			</DialogFooter>
+		</DialogContent>
+	)
+}

@@ -1,0 +1,487 @@
+import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { ArrowDown, ArrowUp, Boxes, GripVertical, Pencil, Plus, Trash2 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { ConfirmDeleteDialog } from "@/components/ui/confirm-delete-dialog";
+import { toast } from "sonner";
+import { AnimatedButton, PageWrapper } from "@/components/ui/motion";
+import { QueryError } from "@/components/ui/query-error";
+import { PageHeader } from "@/components/ui/page-header";
+import { TablePageSkeleton } from "@/components/ui/page-skeleton";
+import { EmptyState } from "@/components/ui/empty-state";
+import { DataTableShell } from "@/components/ui/data-table-shell";
+import {
+  DataList,
+  DataListActions,
+  DataListBody,
+  DataListCell,
+  DataListHead,
+  DataListHeader,
+  DataListRow,
+} from "@/components/ui/data-list";
+import {
+  useDashboardGroups,
+  createGroupOptimistic,
+  updateGroupOptimistic,
+  reorderGroupsOptimistic,
+  deleteGroupOptimistic,
+} from "@/lib/swr";
+import type { Group } from "@/lib/api";
+import { cn } from "@/lib/utils";
+
+interface GroupFormState {
+  name: string;
+  description: string;
+  user_selectable: boolean;
+  sort_order: string;
+}
+
+const EMPTY_FORM: GroupFormState = {
+  name: "",
+  description: "",
+  user_selectable: true,
+  sort_order: "0",
+};
+
+function formFromGroup(group: Group): GroupFormState {
+  return {
+    name: group.name,
+    description: group.description,
+    user_selectable: group.user_selectable,
+    sort_order: String(group.sort_order),
+  };
+}
+
+function useFinePointer() {
+  const [isFinePointer, setIsFinePointer] = useState(() =>
+    typeof window === "undefined" ? false : window.matchMedia("(pointer: fine)").matches
+  );
+
+  useEffect(() => {
+    const media = window.matchMedia("(pointer: fine)");
+    const syncPointerState = () => setIsFinePointer(media.matches);
+    syncPointerState();
+    media.addEventListener("change", syncPointerState);
+    return () => media.removeEventListener("change", syncPointerState);
+  }, []);
+
+  return isFinePointer;
+}
+
+export function GroupsPage() {
+  const { t } = useTranslation();
+  const { data, error, isLoading, isValidating, mutate } = useDashboardGroups();
+  const groups = useMemo(() => data ?? [], [data]);
+
+  const [createOpen, setCreateOpen] = useState(false);
+  const [form, setForm] = useState<GroupFormState>(EMPTY_FORM);
+  const [editTarget, setEditTarget] = useState<Group | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Group | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [reordering, setReordering] = useState(false);
+  const [draggingGroupId, setDraggingGroupId] = useState<string | null>(null);
+  const canDrag = useFinePointer();
+
+  const openCreate = () => {
+    setForm({ ...EMPTY_FORM, sort_order: String(groups.length) });
+    setCreateOpen(true);
+  };
+
+  const validateForm = (): { name: string; description: string; sort_order: number } | null => {
+    const name = form.name.trim();
+    if (!name || name.length > 64) {
+      toast.error(t("groups.invalidName"));
+      return null;
+    }
+    const description = form.description.trim();
+    if (description.length > 256) {
+      toast.error(t("groups.invalidDescription"));
+      return null;
+    }
+    const sortOrder = Number(form.sort_order.trim() || "0");
+    if (!Number.isInteger(sortOrder)) {
+      toast.error(t("groups.invalidSortOrder"));
+      return null;
+    }
+    return { name, description, sort_order: sortOrder };
+  };
+
+  const handleCreate = async () => {
+    const validated = validateForm();
+    if (!validated || saving) return;
+    setSaving(true);
+    try {
+      await createGroupOptimistic(
+        { ...validated, user_selectable: form.user_selectable },
+        groups,
+        (error) => toast.error(error.message)
+      );
+      setCreateOpen(false);
+      toast.success(t("groups.createSuccess"));
+    } catch {
+      // optimistic helper already rolled back and toasted
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleUpdate = async () => {
+    if (!editTarget) return;
+    const validated = validateForm();
+    if (!validated || saving) return;
+    setSaving(true);
+    try {
+      await updateGroupOptimistic(
+        editTarget.id,
+        { ...validated, user_selectable: form.user_selectable },
+        groups,
+        (error) => toast.error(error.message)
+      );
+      setEditTarget(null);
+      toast.success(t("groups.updateSuccess"));
+    } catch {
+      // optimistic helper already rolled back and toasted
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    await deleteGroupOptimistic(deleteTarget.id, groups, (deleteError) =>
+      toast.error(deleteError.message)
+    ).catch(() => undefined);
+  };
+
+  const toggleUserSelectable = async (group: Group, userSelectable: boolean) => {
+    await updateGroupOptimistic(
+      group.id,
+      { user_selectable: userSelectable },
+      groups,
+      (error) => toast.error(error.message)
+    ).catch(() => undefined);
+  };
+
+  const applyReorder = async (orderedGroups: Group[]) => {
+    if (reordering) return;
+    setReordering(true);
+    try {
+      await reorderGroupsOptimistic(
+        orderedGroups.map((group) => group.id),
+        groups,
+        (error) => toast.error(error.message)
+      );
+    } catch {
+      // optimistic helper already rolled back and toasted
+    } finally {
+      setDraggingGroupId(null);
+      setReordering(false);
+    }
+  };
+
+  const moveGroup = async (from: number, to: number) => {
+    if (to < 0 || to >= groups.length || from === to || reordering) return;
+    const next = [...groups];
+    const [group] = next.splice(from, 1);
+    next.splice(to, 0, group);
+    await applyReorder(next);
+  };
+
+  const handleDrop = async (targetGroupId: string) => {
+    if (!draggingGroupId || draggingGroupId === targetGroupId || reordering) {
+      setDraggingGroupId(null);
+      return;
+    }
+    const next = [...groups];
+    const from = next.findIndex((group) => group.id === draggingGroupId);
+    const to = next.findIndex((group) => group.id === targetGroupId);
+    if (from < 0 || to < 0) {
+      setDraggingGroupId(null);
+      return;
+    }
+    const [group] = next.splice(from, 1);
+    next.splice(to, 0, group);
+    await applyReorder(next);
+  };
+
+  const renderForm = (onSubmit: () => void) => (
+    <>
+      <div className="grid gap-4 py-4">
+        <div className="grid gap-2">
+          <Label htmlFor="group-name">{t("groups.name")}</Label>
+          <Input
+            id="group-name"
+            value={form.name}
+            maxLength={64}
+            onChange={(e) => setForm({ ...form, name: e.target.value })}
+            placeholder={t("groups.namePlaceholder")}
+          />
+        </div>
+        <div className="grid gap-2">
+          <Label htmlFor="group-description">{t("groups.descriptionLabel")}</Label>
+          <Textarea
+            id="group-description"
+            value={form.description}
+            maxLength={256}
+            rows={2}
+            onChange={(e) => setForm({ ...form, description: e.target.value })}
+            placeholder={t("groups.descriptionPlaceholder")}
+          />
+          <p className="text-xs text-muted-foreground">{t("groups.descriptionHelp")}</p>
+        </div>
+        <div className="grid gap-2">
+          <Label htmlFor="group-sort-order">{t("groups.sortOrder")}</Label>
+          <Input
+            id="group-sort-order"
+            inputMode="numeric"
+            value={form.sort_order}
+            onChange={(e) => setForm({ ...form, sort_order: e.target.value })}
+            placeholder="0"
+          />
+          <p className="text-xs text-muted-foreground">{t("groups.sortOrderHelp")}</p>
+        </div>
+        <div className="flex items-center justify-between rounded-lg border p-3">
+          <div>
+            <Label htmlFor="group-user-selectable">{t("groups.userSelectable")}</Label>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {t("groups.userSelectableHelp")}
+            </p>
+          </div>
+          <Switch
+            id="group-user-selectable"
+            checked={form.user_selectable}
+            onCheckedChange={(checked) => setForm({ ...form, user_selectable: checked })}
+          />
+        </div>
+      </div>
+      <DialogFooter>
+        <Button type="button" onClick={onSubmit} disabled={saving}>
+          {saving ? t("common.loading") : t("common.save")}
+        </Button>
+      </DialogFooter>
+    </>
+  );
+
+  const createButton = (
+    <Button onClick={openCreate}>
+      <Plus data-icon="inline-start" aria-hidden="true" />
+      {t("groups.create")}
+    </Button>
+  );
+
+  if (isLoading) {
+    return (
+      <PageWrapper>
+        <TablePageSkeleton rows={5} columns={4} />
+      </PageWrapper>
+    );
+  }
+
+  return (
+    <PageWrapper className="space-y-6">
+      <PageHeader
+        title={t("groups.title")}
+        description={t("groups.description")}
+        actions={<AnimatedButton>{createButton}</AnimatedButton>}
+      />
+
+      {error ? <QueryError onRetry={mutate} retrying={isValidating} stale={data !== undefined} /> : null}
+
+      {data !== undefined ? (
+      <DataTableShell
+        toolbar={
+          <p className="ml-auto text-sm tabular-nums text-muted-foreground">
+            {t("groups.count", { count: groups.length })}
+          </p>
+        }
+        isEmpty={groups.length === 0}
+        emptyState={
+          <EmptyState
+            icon={<Boxes className="size-10" aria-hidden="true" />}
+            title={t("groups.emptyTitle")}
+            description={t("groups.emptyDescription")}
+            action={createButton}
+          />
+        }
+      >
+        <DataList columns="5.5rem minmax(0,1fr) 9rem 10rem">
+          <DataListHeader>
+            <DataListHead>{t("groups.sortOrder")}</DataListHead>
+            <DataListHead>{t("groups.name")}</DataListHead>
+            <DataListHead>{t("groups.userSelectable")}</DataListHead>
+            <DataListHead align="end">{t("common.actions")}</DataListHead>
+          </DataListHeader>
+          <DataListBody aria-label={t("groups.title")}>
+            {groups.map((group, index) => (
+              <DataListRow
+                key={group.id}
+                className={cn(draggingGroupId === group.id && "bg-muted/50 opacity-60")}
+                onDragOver={(event) => {
+                  if (canDrag && !reordering) event.preventDefault();
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  if (canDrag) void handleDrop(group.id);
+                }}
+              >
+                <DataListCell label={t("groups.sortOrder")}>
+                  <span className="inline-flex items-center gap-1">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="hidden size-9 cursor-grab touch-manipulation active:cursor-grabbing [@media(pointer:fine)]:inline-flex"
+                      draggable={canDrag && !reordering}
+                      disabled={!canDrag || reordering}
+                      aria-label={t("groups.dragToReorder")}
+                      title={t("groups.dragToReorder")}
+                      onDragStart={(event) => {
+                        event.dataTransfer.effectAllowed = "move";
+                        event.dataTransfer.setData("text/plain", group.id);
+                        setDraggingGroupId(group.id);
+                      }}
+                      onDragEnd={() => setDraggingGroupId(null)}
+                    >
+                      <GripVertical />
+                    </Button>
+                    <span className="min-w-6 tabular-nums text-muted-foreground">
+                      {group.sort_order}
+                    </span>
+                  </span>
+                </DataListCell>
+                <DataListCell primary>
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="truncate font-medium" title={group.name}>
+                      {group.name}
+                    </span>
+                    {group.is_default && (
+                      <Badge variant="secondary">{t("groups.defaultBadge")}</Badge>
+                    )}
+                  </div>
+                  <p
+                    className="mt-0.5 truncate text-muted-foreground"
+                    title={group.description || undefined}
+                  >
+                    {group.description || "—"}
+                  </p>
+                </DataListCell>
+                <DataListCell label={t("groups.userSelectable")}>
+                  <Switch
+                    className="align-middle"
+                    checked={group.user_selectable}
+                    aria-label={t("groups.userSelectableItem", { name: group.name })}
+                    onCheckedChange={(checked) => toggleUserSelectable(group, checked)}
+                  />
+                </DataListCell>
+                <DataListActions>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-11 touch-manipulation sm:size-9"
+                    disabled={index === 0 || reordering}
+                    aria-label={t("groups.moveUp")}
+                    title={t("groups.moveUp")}
+                    onClick={() => void moveGroup(index, index - 1)}
+                  >
+                    <ArrowUp />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-11 touch-manipulation sm:size-9"
+                    disabled={index === groups.length - 1 || reordering}
+                    aria-label={t("groups.moveDown")}
+                    title={t("groups.moveDown")}
+                    onClick={() => void moveGroup(index, index + 1)}
+                  >
+                    <ArrowDown />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-11 touch-manipulation sm:size-9"
+                    aria-label={t("common.editItem", { name: group.name })}
+                    onClick={() => {
+                      setForm(formFromGroup(group));
+                      setEditTarget(group);
+                    }}
+                  >
+                    <Pencil />
+                  </Button>
+                  {/* Disabled buttons ignore pointer events, so the reason lives on a wrapper. */}
+                  <span
+                    className="inline-flex"
+                    title={group.is_default ? t("groups.cannotDeleteDefault") : undefined}
+                  >
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-11 touch-manipulation sm:size-9"
+                      aria-label={t("common.deleteItem", { name: group.name })}
+                      disabled={group.is_default}
+                      onClick={() => setDeleteTarget(group)}
+                    >
+                      <Trash2 className="text-error-foreground" />
+                    </Button>
+                  </span>
+                </DataListActions>
+              </DataListRow>
+            ))}
+          </DataListBody>
+        </DataList>
+      </DataTableShell>
+      ) : null}
+
+      {/* Create dialog */}
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("groups.create")}</DialogTitle>
+            <DialogDescription>{t("groups.createDescription")}</DialogDescription>
+          </DialogHeader>
+          {renderForm(handleCreate)}
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit dialog */}
+      <Dialog open={editTarget !== null} onOpenChange={(open) => !open && setEditTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("groups.edit")}</DialogTitle>
+            <DialogDescription>
+              {editTarget?.is_default
+                ? t("groups.editDefaultDescription")
+                : editTarget?.name}
+            </DialogDescription>
+          </DialogHeader>
+          {renderForm(handleUpdate)}
+        </DialogContent>
+      </Dialog>
+
+      <ConfirmDeleteDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+        title={t("groups.deleteTitle")}
+        description={t("groups.deleteDescription", { name: deleteTarget?.name })}
+        onConfirm={handleDelete}
+      />
+    </PageWrapper>
+  );
+}

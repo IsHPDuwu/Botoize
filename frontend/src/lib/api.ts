@@ -1,0 +1,1848 @@
+const API_BASE = "/api/dashboard";
+
+/** Error carrying the backend `error.code`, for code-keyed localized toasts. */
+export class DashboardApiError extends Error {
+  readonly code: string;
+
+  constructor(code: string, message: string) {
+    super(message);
+    this.name = "DashboardApiError";
+    this.code = code;
+  }
+}
+
+type UnauthorizedHandler = () => void;
+
+const unauthorizedHandlers = new Set<UnauthorizedHandler>();
+
+export function subscribeDashboardUnauthorized(
+  handler: UnauthorizedHandler,
+): () => void {
+  unauthorizedHandlers.add(handler);
+  return () => {
+    unauthorizedHandlers.delete(handler);
+  };
+}
+
+function notifyDashboardUnauthorized(): void {
+  for (const handler of unauthorizedHandlers) {
+    handler();
+  }
+}
+
+export interface Group {
+  id: string;
+  name: string;
+  description: string;
+  is_default: boolean;
+  user_selectable: boolean;
+  sort_order: number;
+  billing_ratio: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateGroupInput {
+  name: string;
+  description?: string;
+  user_selectable?: boolean;
+  sort_order?: number;
+  billing_ratio?: string;
+}
+
+export interface UpdateGroupInput {
+  name?: string;
+  description?: string;
+  user_selectable?: boolean;
+  sort_order?: number;
+  billing_ratio?: string;
+}
+
+export interface User {
+  id: string;
+  username: string;
+  role: "super_admin" | "admin" | "user";
+  created_at: string;
+  last_login_at?: string;
+  enabled: boolean;
+  balance_nano_usd: string;
+  balance_usd: string;
+  balance_unlimited: boolean;
+  email?: string | null;
+  group_id: string;
+  today_calls?: number;
+  today_cost_nano_usd?: string;
+  today_cost_usd?: string;
+}
+
+export interface BillingPlan {
+  id: string;
+  name: string;
+  description: string;
+  limit_5h_nano_usd: string | null;
+  limit_24h_nano_usd: string | null;
+  limit_7d_nano_usd: string | null;
+  limit_30d_nano_usd: string | null;
+  group_ids: string[];
+  multiplier: string;
+  listed: boolean;
+  prices: BillingPlanPrice[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BillingPlanPrice {
+  id: string;
+  price_nano_usd: string;
+  price_usd: string;
+  duration_seconds: number;
+  created_at: string;
+}
+
+export interface BillingPlanPriceInput {
+  price_nano_usd?: string;
+  price_usd?: string;
+  duration_seconds: number;
+}
+
+export interface BillingPlanInput {
+  name: string;
+  description: string;
+  limit_5h_nano_usd: string | null;
+  limit_24h_nano_usd: string | null;
+  limit_7d_nano_usd: string | null;
+  limit_30d_nano_usd: string | null;
+  group_ids: string[];
+  multiplier: string;
+  listed: boolean;
+  prices: BillingPlanPriceInput[];
+}
+
+export interface BillingPlanWindowUsage {
+  limit_nano_usd: string;
+  used_nano_usd: string;
+  remaining_nano_usd: string;
+  next_reset_at: string | null;
+}
+
+export interface BillingPlanSubscription {
+  id: string;
+  user_id: string;
+  plan_id: string;
+  price_id: string | null;
+  plan_name: string;
+  plan_description: string;
+  group_ids: string[];
+  multiplier: string;
+  price_nano_usd: string | null;
+  starts_at: string;
+  expires_at: string;
+  windows: {
+    five_hour: BillingPlanWindowUsage | null;
+    twenty_four_hour: BillingPlanWindowUsage | null;
+    seven_day: BillingPlanWindowUsage | null;
+    thirty_day: BillingPlanWindowUsage | null;
+  };
+}
+
+export interface AuthResponse {
+  user: User;
+}
+
+export type Phase = "request" | "response";
+
+export type TransformScope = "provider" | "global" | "api_key";
+
+export interface TransformRuleConfig {
+  transform: string;
+  enabled: boolean;
+  models?: string[] | null;
+  phase: Phase;
+  config: Record<string, unknown>;
+}
+
+export interface TransformRegistryItem {
+  type_id: string;
+  supported_phases: Phase[];
+  supported_scopes: TransformScope[];
+  config_schema: Record<string, unknown>;
+  name: Record<string, string>;
+  description: Record<string, string>;
+  // Marker fields present only on custom js: items (custom-js-transforms.spec.md CJS-REG-2)
+  custom?: boolean;
+  visibility?: CustomTransformVisibility;
+}
+
+export type CustomTransformVisibility = "admin" | "user";
+
+export interface CustomTransform {
+  id: string;
+  name: string;
+  description: string;
+  author: string;
+  source: string;
+  enabled: boolean;
+  visibility: CustomTransformVisibility;
+  phases: Phase[];
+  scopes: TransformScope[];
+  config_schema: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ModelRedirectRule {
+  pattern: string;
+  replace: string;
+}
+
+export type RequestCaptureMode =
+  "off" | "capture-all" | "capture-only-abnormal";
+
+/** Per-key capture retention (RCD-C5a, `request-capture-dumps.spec.md`). */
+export type RequestCaptureRetention = "5m" | "1h" | "24h" | "7d";
+
+export interface ApiKey {
+  id: string;
+  name: string;
+  key_prefix: string;
+  key: string;
+  created_at: string;
+  expires_at?: string;
+  last_used_at?: string;
+  enabled: boolean;
+  sub_account_enabled: boolean;
+  sub_account_balance_nano_usd: string;
+  sub_account_balance_usd: string;
+  model_limits_enabled: boolean;
+  model_limits: string[];
+  ip_whitelist: string[];
+  use_user_group: boolean;
+  group_ids: string[];
+  max_multiplier?: string;
+  transforms: TransformRuleConfig[];
+  model_redirects: ModelRedirectRule[];
+  reasoning_envelope_enabled: boolean;
+  request_capture_mode: RequestCaptureMode;
+  request_capture_retention: RequestCaptureRetention;
+}
+
+export type ApiKeyCreated = ApiKey;
+
+export interface CreateApiKeyInput {
+  name: string;
+  expires_in_days?: number;
+  sub_account_enabled?: boolean;
+  sub_account_balance_nano_usd?: string;
+  model_limits_enabled?: boolean;
+  model_limits?: string[];
+  ip_whitelist?: string[];
+  use_user_group?: boolean;
+  group_ids?: string[];
+  max_multiplier?: string;
+  transforms?: TransformRuleConfig[];
+  model_redirects?: ModelRedirectRule[];
+  reasoning_envelope_enabled?: boolean;
+  request_capture_mode?: RequestCaptureMode;
+  request_capture_retention?: RequestCaptureRetention;
+}
+
+export interface UpdateApiKeyInput {
+  name?: string;
+  enabled?: boolean;
+  sub_account_enabled?: boolean;
+  sub_account_balance_nano_usd?: string;
+  model_limits_enabled?: boolean;
+  model_limits?: string[];
+  ip_whitelist?: string[];
+  use_user_group?: boolean;
+  group_ids?: string[];
+  max_multiplier?: string;
+  transforms?: TransformRuleConfig[];
+  expires_at?: string;
+  model_redirects?: ModelRedirectRule[];
+  reasoning_envelope_enabled?: boolean;
+  request_capture_mode?: RequestCaptureMode;
+  request_capture_retention?: RequestCaptureRetention;
+}
+
+export interface SystemSettings {
+  registration_enabled: boolean;
+  captcha_enabled: boolean;
+  default_user_role: string;
+  session_ttl_days: number;
+  api_key_max_per_user: number;
+  site_name: string;
+  site_description: string;
+  api_base_url: string;
+  global_transforms: TransformRuleConfig[];
+  global_model_redirects: ModelRedirectRule[];
+  reasoning_suffix_map: Record<string, string>;
+  codex_model_ids: string[];
+  dashboard_performance_group_ids: string[];
+  dashboard_performance_model_ids: string[];
+  monoize_active_probe_enabled: boolean;
+  monoize_active_probe_interval_seconds: number;
+  monoize_active_probe_success_threshold: number;
+  monoize_active_probe_model?: string | null;
+  monoize_affinity_enabled: boolean;
+  monoize_affinity_idle_ttl_seconds: number;
+  monoize_affinity_failback_mode: AffinityFailbackMode;
+  monoize_affinity_failback_delay_seconds: number;
+  monoize_passive_failure_threshold: number;
+  monoize_passive_cooldown_seconds: number;
+  monoize_passive_window_seconds: number;
+  monoize_passive_min_samples: number;
+  monoize_passive_failure_rate_threshold: number;
+  monoize_passive_rate_limit_cooldown_seconds: number;
+  monoize_request_timeout_ms: number;
+  monoize_enable_estimated_billing: boolean;
+  monoize_extra_fields_whitelist: Record<string, string[]>;
+  monoize_strip_cross_protocol_nested_extra: boolean;
+  monoize_request_capture_enabled: boolean;
+  monoize_request_capture_max_total_bytes: number;
+  monoize_mask_sensitive_info: boolean;
+  allow_free_when_unpriced: boolean;
+  allow_free_when_missing_usage: boolean;
+  tool_prices: Record<string, ToolPriceEntry>;
+  price_sync_auto_enabled: boolean;
+  price_sync_new_api_base_url: string;
+  price_sync_new_api_token: string;
+  recharge_public_origin: string;
+  updated_at: string;
+}
+
+// Recharge system (recharge-system.spec.md §9)
+
+/** RC-A1 user-facing channel object; never contains config_json. */
+export interface RechargeChannel {
+  id: string;
+  name: string;
+  type_id: string;
+  currency: string;
+  usd_rate: string;
+  min_credit_usd: string;
+  max_credit_usd: string;
+  pay_scale: number;
+}
+
+export type RechargeOrderStatus =
+  "pending" | "succeeded" | "failed" | "expired" | "refunded";
+
+/** RC-A3 order object; `username` present only for admin callers. */
+export interface RechargeOrder {
+  id: string;
+  user_id: string;
+  username?: string | null;
+  payment_channel_id: string;
+  channel_type_id: string;
+  channel_name: string;
+  status: RechargeOrderStatus;
+  credit_nano_usd: string;
+  credit_usd: string;
+  pay_currency: string;
+  pay_amount: string;
+  usd_rate: string;
+  provider_order_id: string | null;
+  error_code: string | null;
+  paid_at: string | null;
+  expires_at: string;
+  created_at: string;
+}
+
+export interface RechargeOrdersResponse {
+  orders: RechargeOrder[];
+  total: number;
+}
+
+export interface CreateRechargeOrderInput {
+  payment_channel_id: string;
+  credit_nano_usd?: string;
+  credit_usd?: string;
+}
+
+export interface CreateRechargeOrderResponse {
+  order: RechargeOrder;
+  payment: { kind: "redirect"; url: string };
+}
+
+export interface RechargeOrdersFilter {
+  status?: RechargeOrderStatus;
+  username?: string;
+}
+
+/** RC-A5 ledger entry; `username` present only for admin callers. */
+export interface LedgerEntry {
+  id: string;
+  user_id: string;
+  username?: string | null;
+  kind: string;
+  delta_nano_usd: string;
+  delta_usd: string;
+  balance_after_nano_usd: string | null;
+  meta_json: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface LedgerResponse {
+  entries: LedgerEntry[];
+  total: number;
+}
+
+/** §9.2 admin channel object; secret config fields are masked to "". */
+export interface PaymentChannel {
+  id: string;
+  name: string;
+  type_id: string;
+  enabled: boolean;
+  currency: string;
+  usd_rate: string;
+  min_credit_usd: string;
+  max_credit_usd: string;
+  config: Record<string, string>;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreatePaymentChannelInput {
+  name: string;
+  type_id: string;
+  currency: string;
+  usd_rate: string;
+  min_credit_usd?: string;
+  max_credit_usd?: string;
+  enabled?: boolean;
+  sort_order?: number;
+  config: Record<string, string>;
+}
+
+export interface UpdatePaymentChannelInput {
+  name?: string;
+  usd_rate?: string;
+  min_credit_usd?: string;
+  max_credit_usd?: string;
+  enabled?: boolean;
+  sort_order?: number;
+  config?: Record<string, string>;
+}
+
+export type ToolPriceUnit = "1k_calls" | "minute" | "session";
+
+export interface ToolPriceObject {
+  usd: string | number;
+  per: ToolPriceUnit;
+  minimum_units?: number;
+}
+
+export type ToolPriceEntry = number | string | ToolPriceObject;
+
+export type BillingMode = "per_token" | "per_request" | "tiered_expr";
+
+export interface BillingExprTier {
+  when_input_tokens_lte?: number | null;
+  input_usd_per_1m: string;
+  output_usd_per_1m?: string | null;
+  cache_read_usd_per_1m?: string | null;
+  cache_write_usd_per_1m?: string | null;
+  cache_write_1h_usd_per_1m?: string | null;
+  reasoning_usd_per_1m?: string | null;
+}
+
+export interface BillingExprServiceTier {
+  tiers: BillingExprTier[];
+}
+
+export interface BillingExpr {
+  tiers: BillingExprTier[];
+  service_tiers?: Record<string, BillingExprServiceTier>;
+}
+
+export interface ModelPriceRecord {
+  model_id: string;
+  billing_mode: BillingMode;
+  input_usd_per_1m: string | null;
+  output_usd_per_1m: string | null;
+  cache_read_usd_per_1m: string | null;
+  cache_write_usd_per_1m: string | null;
+  cache_write_1h_usd_per_1m: string | null;
+  reasoning_usd_per_1m: string | null;
+  per_request_usd: string | null;
+  billing_expr: BillingExpr | null;
+  source: string;
+  locked_fields: string[];
+  raw_json: Record<string, unknown>;
+  enabled: boolean;
+  updated_at: string;
+}
+
+export interface UpsertModelPriceInput {
+  billing_mode?: BillingMode;
+  input_usd_per_1m?: string | null;
+  output_usd_per_1m?: string | null;
+  cache_read_usd_per_1m?: string | null;
+  cache_write_usd_per_1m?: string | null;
+  cache_write_1h_usd_per_1m?: string | null;
+  reasoning_usd_per_1m?: string | null;
+  per_request_usd?: string | null;
+  billing_expr?: BillingExpr | null;
+  locked_fields?: string[];
+  enabled?: boolean;
+}
+
+export interface PriceSyncRun {
+  id: string;
+  source: string;
+  status: "running" | "success" | "failed";
+  started_at: string;
+  finished_at: string | null;
+  inserted: number;
+  updated: number;
+  skipped: number;
+  deleted: number;
+  error: string | null;
+  detail_json: Record<string, unknown>;
+}
+
+export type PriceSyncSource = "models_dev" | "openrouter" | "new_api";
+
+export interface PriceSyncChange {
+  model_id: string;
+  kind: "insert" | "update" | "delete";
+  fields?: string[];
+}
+
+// model-pricing.spec.md MP-A6 preview payload.
+export interface PriceSyncPreview {
+  source: PriceSyncSource;
+  insert: number;
+  update: number;
+  skip: number;
+  delete: number;
+  changes: PriceSyncChange[];
+  truncated?: boolean;
+}
+
+export interface PublicSystemSettings {
+  registration_enabled: boolean;
+  captcha_enabled: boolean;
+  site_name: string;
+  site_description: string;
+  api_base_url: string;
+  cap_api_endpoint: string | null;
+}
+
+export interface DashboardStats {
+  user_count: number | null;
+  my_api_keys_count: number;
+  providers_count: number;
+  config_providers_count: number;
+  current_user: User;
+}
+
+export interface DashboardGroupsResponse {
+  groups: Group[];
+}
+
+export interface ConfigOverview {
+  server: {
+    listen: string;
+    metrics_path: string;
+    unknown_fields_policy: string;
+  };
+  database: {
+    dsn: string;
+  };
+  routing?: {
+    providers_count: number;
+  };
+  providers?: Array<{
+    id: string;
+    type: string;
+    has_base_url: boolean;
+    model_count: number;
+    member_count: number;
+  }>;
+  model_registry?: {
+    sources_count: number;
+  };
+}
+
+export interface MonoizeModelEntry {
+  redirect: string | null;
+  multiplier: string;
+}
+
+export interface MonoizeChannel {
+  id: string;
+  name: string;
+  provider_type: ProviderType;
+  base_url: string;
+  weight: number;
+  enabled: boolean;
+  passive_failure_count_threshold_override?: number | null;
+  passive_cooldown_seconds_override?: number | null;
+  passive_window_seconds_override?: number | null;
+  passive_rate_limit_cooldown_seconds_override?: number | null;
+  models: Record<string, MonoizeModelEntry>;
+  active_probe_enabled_override?: boolean | null;
+  active_probe_interval_seconds_override?: number | null;
+  active_probe_success_threshold_override?: number | null;
+  active_probe_model_override?: string | null;
+  affinity_enabled_override?: boolean | null;
+  affinity_idle_ttl_seconds_override?: number | null;
+  affinity_failback_mode_override?: AffinityFailbackMode | null;
+  affinity_failback_delay_seconds_override?: number | null;
+  proxy_url?: string | null;
+  extra_headers?: Record<string, string> | null;
+  session_affinity_auto?: boolean | null;
+  websocket_supported?: boolean | null;
+  _healthy?: boolean;
+  _last_success_at?: string;
+  _health_status?: "healthy" | "probing" | "unhealthy";
+  _unhealthy_models?: string[];
+  _probing_models?: string[];
+  _cooldown_until?: string;
+}
+
+export interface ProviderModelRuntimeChannel {
+  channel_id: string;
+  channel_name: string;
+  cooldown_until?: string;
+}
+
+export interface ProviderModelRuntimeStatus {
+  model: string;
+  availability_status: "healthy" | "degraded" | "unavailable";
+  eligible_channel_count: number;
+  available_channel_count: number;
+  breaker_channels: ProviderModelRuntimeChannel[];
+  pricing_status: "complete" | "partial" | "missing";
+  unpriced_channels: ProviderModelRuntimeChannel[];
+}
+
+export type ProviderType =
+  | "responses"
+  | "chat_completion"
+  | "messages"
+  | "gemini"
+  | "openai_image"
+  | "openrouter_image"
+  | "replicate"
+  | "system_one"
+  | "openai_decisions";
+export type AffinityFailbackMode = "sticky" | "prefer_higher_priority";
+
+export interface ApiTypeOverride {
+  pattern: string;
+  api_type: ProviderType;
+}
+export interface Provider {
+  id: string;
+  name: string;
+  channels: MonoizeChannel[];
+  max_retries: number;
+  channel_max_retries: number;
+  channel_retry_interval_ms: number;
+  circuit_breaker_enabled: boolean;
+  per_model_circuit_break: boolean;
+  transforms: TransformRuleConfig[];
+  api_type_overrides: ApiTypeOverride[];
+  active_probe_enabled_override?: boolean | null;
+  active_probe_interval_seconds_override?: number | null;
+  active_probe_success_threshold_override?: number | null;
+  active_probe_model_override?: string | null;
+  request_timeout_ms_override?: number | null;
+  extra_fields_whitelist?: string[] | null;
+  strip_cross_protocol_nested_extra?: boolean | null;
+  group_ids: string[];
+  allow_free_when_unpriced_override?: boolean | null;
+  allow_free_when_missing_usage_override?: boolean | null;
+  enabled: boolean;
+  priority: number;
+  created_at: string;
+  updated_at: string;
+  unpriced_model_count?: number;
+  unpriced_model_ids?: string[];
+  model_runtime_statuses?: ProviderModelRuntimeStatus[];
+  live_usage?: {
+    window_seconds: 60;
+    rpm: number;
+    tpm: number;
+  };
+}
+
+export interface CreateMonoizeChannelInput {
+  id?: string;
+  name: string;
+  provider_type: ProviderType;
+  base_url: string;
+  api_key?: string;
+  weight?: number;
+  enabled?: boolean;
+  passive_failure_count_threshold_override?: number | null;
+  passive_cooldown_seconds_override?: number | null;
+  passive_window_seconds_override?: number | null;
+  passive_rate_limit_cooldown_seconds_override?: number | null;
+  models: Record<string, MonoizeModelEntry>;
+  active_probe_enabled_override?: boolean | null;
+  active_probe_interval_seconds_override?: number | null;
+  active_probe_success_threshold_override?: number | null;
+  active_probe_model_override?: string | null;
+  affinity_enabled_override?: boolean | null;
+  affinity_idle_ttl_seconds_override?: number | null;
+  affinity_failback_mode_override?: AffinityFailbackMode | null;
+  affinity_failback_delay_seconds_override?: number | null;
+  proxy_url?: string | null;
+  extra_headers?: Record<string, string> | null;
+  session_affinity_auto?: boolean | null;
+  websocket_supported?: boolean | null;
+}
+
+export interface CreateProviderInput {
+  name: string;
+  channels: CreateMonoizeChannelInput[];
+  max_retries?: number;
+  channel_max_retries?: number;
+  channel_retry_interval_ms?: number;
+  circuit_breaker_enabled?: boolean;
+  per_model_circuit_break?: boolean;
+  transforms?: TransformRuleConfig[];
+  api_type_overrides?: ApiTypeOverride[];
+  active_probe_enabled_override?: boolean | null;
+  active_probe_interval_seconds_override?: number | null;
+  active_probe_success_threshold_override?: number | null;
+  active_probe_model_override?: string | null;
+  request_timeout_ms_override?: number | null;
+  extra_fields_whitelist?: string[] | null;
+  strip_cross_protocol_nested_extra?: boolean | null;
+  group_ids?: string[];
+  allow_free_when_unpriced_override?: boolean | null;
+  allow_free_when_missing_usage_override?: boolean | null;
+  enabled?: boolean;
+  priority?: number;
+}
+
+export interface UpdateProviderInput {
+  name?: string;
+  channels?: CreateMonoizeChannelInput[];
+  max_retries?: number;
+  channel_max_retries?: number;
+  channel_retry_interval_ms?: number;
+  circuit_breaker_enabled?: boolean;
+  per_model_circuit_break?: boolean;
+  transforms?: TransformRuleConfig[];
+  api_type_overrides?: ApiTypeOverride[];
+  active_probe_enabled_override?: boolean | null;
+  active_probe_interval_seconds_override?: number | null;
+  active_probe_success_threshold_override?: number | null;
+  active_probe_model_override?: string | null;
+  request_timeout_ms_override?: number | null;
+  extra_fields_whitelist?: string[] | null;
+  strip_cross_protocol_nested_extra?: boolean | null;
+  group_ids?: string[];
+  allow_free_when_unpriced_override?: boolean | null;
+  allow_free_when_missing_usage_override?: boolean | null;
+  enabled?: boolean;
+  priority?: number;
+}
+
+export interface ModelMetadataRecord {
+  model_id: string;
+  models_dev_provider?: string;
+  mode?: string;
+  max_input_tokens?: number;
+  max_output_tokens?: number;
+  max_tokens?: number;
+  raw_json: Record<string, unknown>;
+  source: string;
+  updated_at: string;
+}
+
+// Marketplace rows join the enabled `model_prices` row on `model_id`
+// (model-marketplace.spec.md); prices are decimal USD-per-1M strings.
+export interface MarketplaceModelRecord extends ModelMetadataRecord {
+  input_usd_per_1m: string | null;
+  output_usd_per_1m: string | null;
+}
+
+export interface UpsertModelMetadataInput {
+  source?: "manual" | "models_dev";
+  models_dev_provider?: string | null;
+  mode?: string | null;
+  max_input_tokens?: number | null;
+  max_output_tokens?: number | null;
+  max_tokens?: number | null;
+}
+
+export interface ModelMetadataSyncResult {
+  success: boolean;
+  upserted: number;
+  skipped: number;
+  fetched_at: string;
+}
+
+export interface RequestLogProvider {
+  id?: string;
+  name?: string;
+  multiplier?: string;
+}
+
+export interface RequestLogChannel {
+  id?: string;
+  name?: string;
+}
+
+export interface RequestLogUser {
+  id: string;
+  username?: string;
+}
+
+export interface RequestLogApiKey {
+  id?: string;
+  name?: string;
+}
+
+export interface RequestLogTokens {
+  input?: number;
+  output?: number;
+  cache_read?: number;
+  cache_creation?: number;
+  tool_prompt?: number;
+  reasoning?: number;
+  accepted_prediction?: number;
+  rejected_prediction?: number;
+}
+
+export interface RequestLogTiming {
+  duration_ms?: number | string | null;
+  ttfb_ms?: number | string | null;
+}
+
+export interface RequestLogBilling {
+  charge_nano_usd?: string;
+  breakdown?: Record<string, unknown>;
+}
+
+export interface RequestLogError {
+  code?: string;
+  message?: string;
+  http_status?: number;
+}
+
+export interface RequestLogAffinity {
+  hit?: boolean;
+  key_hash?: string;
+  target?: string;
+}
+
+export interface RequestLogTriedProvider {
+  attempt_number?: number;
+  provider_id: string;
+  channel_id: string;
+  provider_name?: string | null;
+  channel_name?: string | null;
+  error: string;
+  upstream_status?: number | null;
+  upstream_code?: string | null;
+  upstream_type?: string | null;
+  upstream_param?: string | null;
+  duration_ms?: number | null;
+}
+
+export interface RequestLog {
+  id: string;
+  request_id?: string;
+  created_at: string;
+  status: string;
+  is_stream: boolean;
+  model: string;
+  upstream_model?: string;
+  upstream_response_model?: string;
+  effective_provider_type?: string;
+  request_kind?: string;
+  reasoning_effort?: string;
+  request_ip?: string;
+  tried_providers?: RequestLogTriedProvider[];
+  session_affinity_value?: string | null;
+  provider: RequestLogProvider;
+  channel: RequestLogChannel;
+  affinity?: RequestLogAffinity;
+  user: RequestLogUser;
+  api_key: RequestLogApiKey;
+  tokens: RequestLogTokens;
+  timing: RequestLogTiming;
+  billing: RequestLogBilling;
+  usage?: Record<string, unknown>;
+  error: RequestLogError;
+  has_capture?: boolean;
+}
+
+export interface CaptureTransformChainEntry {
+  scope: "provider" | "global" | "api_key";
+  transform: string;
+  phase: "request" | "response";
+}
+
+export interface CaptureFrameTruncation {
+  truncated?: boolean;
+  omitted_frames?: number;
+  omitted_bytes?: number;
+  retained_frames?: number;
+  retained_bytes?: number;
+}
+
+export interface CaptureAttempt {
+  attempt_number: number;
+  provider_id: string;
+  channel_id?: string | null;
+  provider_type: string;
+  logical_model: string;
+  upstream_model: string;
+  upstream_path: string;
+  raw_input: unknown;
+  transformed_urp_request: unknown;
+  upstream_request: unknown;
+  downstream_response?: unknown;
+  /** URP non-stream reconstruction of a pass-through stream (RCD-D10a). */
+  reconstructed_urp_response?: unknown;
+  downstream_sse_frames?: string[] | null;
+  downstream_sse_frames_truncation?: CaptureFrameTruncation;
+  transform_chain?: CaptureTransformChainEntry[] | null;
+  /** Number of transform entries redacted for non-admin viewers (RCV-A10). */
+  hidden_transforms?: number;
+  error?: unknown;
+}
+
+export interface CaptureDump {
+  version: number;
+  request_id?: string | null;
+  created_at: string;
+  api_key_id: string;
+  user_id: string;
+  downstream_protocol: string;
+  is_stream: boolean;
+  attempts: CaptureAttempt[];
+  capture_truncation?: Record<string, unknown>;
+}
+
+export interface RequestCaptureDetail {
+  request_id: string;
+  file_name: string;
+  created_at: string;
+  size_bytes: number;
+  owner: { id: string; username?: string | null };
+  dump: CaptureDump;
+}
+
+export interface AdminOverviewNode {
+  role: string;
+  version: string;
+  started_at: string;
+  uptime_seconds: number;
+  listen: string;
+  metrics_path: string;
+  database_backend: string;
+  database_dsn_redacted: string;
+  upstream_proxy_url?: string | null;
+}
+
+export interface AdminOverviewReplicaNode {
+  id: string;
+  hostname: string;
+  listen: string;
+  version: string;
+  started_at: string;
+  last_seen_at: string;
+  uptime_seconds: number;
+  spool_pending_count: number;
+  spool_pending_bytes: number;
+  stale: boolean;
+}
+
+export interface AdminOverviewReplica {
+  ingest_enabled: boolean;
+  spool_pending_count: number;
+  spool_pending_bytes: number;
+  replicas: AdminOverviewReplicaNode[];
+}
+
+export interface AdminOverviewSpend {
+  window: string;
+  window_hours: number;
+  time_from: string;
+  time_to: string;
+  calls: number;
+  cost_nano_usd: string;
+}
+
+export interface AdminOverviewSystem {
+  pending_request_logs: number;
+  sse_connections: number;
+  channel_health_entries: number;
+  channel_affinity_entries: number;
+  routing_config_revision: string;
+}
+
+export interface AdminOverviewUserRanking {
+  user_id: string;
+  username?: string | null;
+  call_count: number;
+  cost_nano_usd: string;
+}
+
+export interface AdminOverviewChannelHealth {
+  provider_id: string;
+  provider_name: string;
+  channel_id: string;
+  channel_name: string;
+  enabled: boolean;
+  weight: number;
+  session_affinity_auto: boolean;
+  healthy: boolean;
+  last_success_at?: number | null;
+  cooldown_until?: number | null;
+  probe_success_count: number;
+  last_probe_at?: number | null;
+  cooldown_active: boolean;
+  unhealthy_models: string[];
+  window_calls: number;
+  window_cost_nano_usd: string;
+}
+
+export interface AdminOverview {
+  node: AdminOverviewNode;
+  replica: AdminOverviewReplica;
+  system: AdminOverviewSystem;
+  spend: AdminOverviewSpend;
+  users_ranking: AdminOverviewUserRanking[];
+  channel_health: AdminOverviewChannelHealth[];
+}
+
+export interface DashboardAnalyticsBucket {
+  label: string;
+  cost_by_model: Record<string, string>;
+  calls_by_model: Record<string, number>;
+  tokens_by_model: Record<string, number>;
+  calls_by_provider: Record<string, number>;
+}
+
+export interface DashboardAnalytics {
+  buckets: DashboardAnalyticsBucket[];
+  time_from: string;
+  time_to: string;
+  total_cost_nano_usd: string;
+  total_calls: number;
+  today_cost_nano_usd: string;
+  today_calls: number;
+}
+
+export type DashboardPerformanceBrickStatus =
+  "up" | "degraded" | "down" | "empty";
+
+export interface DashboardPerformanceBrick {
+  index: number;
+  status: DashboardPerformanceBrickStatus;
+}
+
+export interface DashboardPerformanceGroup {
+  id: string;
+  name: string;
+  bricks: DashboardPerformanceBrick[];
+  avg_ttft_ms: number | null;
+  avg_tps: number | null;
+}
+
+export interface DashboardPerformanceModel {
+  id: string;
+  bricks: DashboardPerformanceBrick[];
+  avg_ttft_ms: number | null;
+  avg_tps: number | null;
+}
+
+export interface DashboardPerformance {
+  groups: DashboardPerformanceGroup[];
+  models: DashboardPerformanceModel[];
+  brick_count: number;
+  window_hours: number;
+  time_from: string;
+  time_to: string;
+}
+
+// Rolling 60-second own-usage aggregate (user-live-usage.spec.md LU-6).
+export interface UserLiveUsage {
+  window_seconds: number;
+  rpm: number;
+  tpm: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_hit_rate: number | null;
+}
+
+export interface RequestLogsFilter {
+  model?: string;
+  status?: string;
+  api_key_id?: string;
+  username?: string;
+  search?: string;
+  time_from?: string;
+  time_to?: string;
+  scope?: "self";
+}
+
+export interface RequestLogsResponse {
+  data: RequestLog[];
+  total: number;
+  limit: number;
+  offset: number;
+  total_charge_nano_usd: string;
+}
+
+export interface ChannelTestResult {
+  success: boolean;
+  latency_ms: number;
+  model: string;
+  stream: boolean;
+  http_status: number | null;
+  error_code: string | null;
+  error_type: string | null;
+  error: string | null;
+}
+
+export interface FetchChannelModelsInput {
+  provider_type: ProviderType;
+  base_url: string;
+  api_key?: string;
+  provider_id?: string;
+  channel_id?: string;
+}
+
+export interface ProbeChannelWebsocketInput {
+  provider_type: ProviderType;
+  base_url: string;
+  api_key?: string;
+  provider_id?: string;
+  channel_id?: string;
+  model?: string;
+}
+
+export interface ProbeChannelWebsocketResult {
+  supported: boolean;
+  http_status: number | null;
+  warmup: "skipped" | "ok" | "protocol_error";
+  error: string | null;
+}
+
+class ApiClient {
+  private async request<T>(
+    path: string,
+    options: RequestInit = {},
+  ): Promise<T> {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...(options.headers as Record<string, string>),
+    };
+
+    const response = await fetch(`${API_BASE}${path}`, {
+      ...options,
+      headers,
+      credentials: "include",
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      if (response.status === 401 && data.error?.code === "unauthorized") {
+        notifyDashboardUnauthorized();
+      }
+      throw new DashboardApiError(
+        data.error?.code || "request_failed",
+        data.error?.message || data.error?.code || "Request failed",
+      );
+    }
+
+    return data;
+  }
+
+  // Auth
+  async register(
+    username: string,
+    password: string,
+    captchaToken: string,
+  ): Promise<AuthResponse> {
+    return this.request("/auth/register", {
+      method: "POST",
+      body: JSON.stringify({ username, password, captcha_token: captchaToken }),
+    });
+  }
+
+  async login(
+    username: string,
+    password: string,
+    captchaToken: string,
+  ): Promise<AuthResponse> {
+    return this.request("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username, password, captcha_token: captchaToken }),
+    });
+  }
+
+  async logout(): Promise<void> {
+    await this.request("/auth/logout", { method: "POST" });
+  }
+
+  async me(): Promise<User> {
+    return this.request("/auth/me");
+  }
+
+  async changePassword(
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<AuthResponse> {
+    return this.request("/auth/password", {
+      method: "PUT",
+      body: JSON.stringify({
+        current_password: currentPassword,
+        new_password: newPassword,
+      }),
+    });
+  }
+
+  // Users
+  async listUsers(): Promise<User[]> {
+    return this.request("/users");
+  }
+
+  async getUser(id: string): Promise<User> {
+    return this.request(`/users/${id}`);
+  }
+
+  async createUser(
+    username: string,
+    password: string,
+    role?: string,
+    group_id?: string,
+  ): Promise<User> {
+    return this.request("/users", {
+      method: "POST",
+      body: JSON.stringify({ username, password, role, group_id }),
+    });
+  }
+
+  async updateUser(
+    id: string,
+    updates: {
+      username?: string;
+      password?: string;
+      role?: string;
+      enabled?: boolean;
+      balance_nano_usd?: string;
+      balance_usd?: string;
+      balance_unlimited?: boolean;
+      email?: string | null;
+      group_id?: string;
+    },
+  ): Promise<User> {
+    return this.request(`/users/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(updates),
+    });
+  }
+
+  // Billing plans
+  async listBillingPlans(): Promise<BillingPlan[]> {
+    return this.request("/billing-plans");
+  }
+
+  async createBillingPlan(input: BillingPlanInput): Promise<BillingPlan> {
+    return this.request("/billing-plans", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  async updateBillingPlan(
+    id: string,
+    input: BillingPlanInput,
+  ): Promise<{ success: boolean }> {
+    return this.request(`/billing-plans/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(input),
+    });
+  }
+
+  async deleteBillingPlan(id: string): Promise<{ success: boolean }> {
+    await this.request(`/billing-plans/${id}`, { method: "DELETE" });
+    return { success: true };
+  }
+
+  async listBillingPlanMarketplace(): Promise<BillingPlan[]> {
+    return this.request("/billing-plans/marketplace");
+  }
+
+  async getBillingPlanSubscription(): Promise<BillingPlanSubscription | null> {
+    return this.request("/billing-plan-subscription");
+  }
+
+  async getUserBillingPlanSubscription(
+    userId: string,
+  ): Promise<BillingPlanSubscription | null> {
+    return this.request(`/users/${userId}/billing-plan-subscription`);
+  }
+
+  async assignUserBillingPlanSubscription(
+    userId: string,
+    planId: string,
+    durationSeconds: number,
+  ): Promise<BillingPlanSubscription> {
+    return this.request(`/users/${userId}/billing-plan-subscription`, {
+      method: "PUT",
+      body: JSON.stringify({
+        plan_id: planId,
+        duration_seconds: durationSeconds,
+      }),
+    });
+  }
+
+  async revokeUserBillingPlanSubscription(
+    userId: string,
+  ): Promise<{ success: boolean }> {
+    return this.request(`/users/${userId}/billing-plan-subscription`, {
+      method: "DELETE",
+    });
+  }
+
+  async purchaseBillingPlan(
+    planId: string,
+    priceId: string,
+  ): Promise<BillingPlanSubscription> {
+    return this.request(`/billing-plans/${planId}/purchase`, {
+      method: "POST",
+      body: JSON.stringify({ price_id: priceId }),
+    });
+  }
+
+  async updateMe(updates: { email?: string | null }): Promise<User> {
+    return this.request("/auth/me", {
+      method: "PUT",
+      body: JSON.stringify(updates),
+    });
+  }
+
+  async deleteUser(id: string): Promise<void> {
+    await this.request(`/users/${id}`, { method: "DELETE" });
+  }
+
+  // API Keys
+  async listApiKeys(): Promise<ApiKey[]> {
+    return this.request("/tokens");
+  }
+
+  async getApiKey(id: string): Promise<ApiKey> {
+    return this.request(`/tokens/${id}`);
+  }
+
+  async createApiKey(input: CreateApiKeyInput): Promise<ApiKeyCreated> {
+    return this.request("/tokens", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  async updateApiKey(id: string, input: UpdateApiKeyInput): Promise<ApiKey> {
+    return this.request(`/tokens/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(input),
+    });
+  }
+
+  async deleteApiKey(id: string): Promise<void> {
+    await this.request(`/tokens/${id}`, { method: "DELETE" });
+  }
+
+  async batchDeleteApiKeys(
+    ids: string[],
+  ): Promise<{ success: boolean; deleted_count: number }> {
+    return this.request("/tokens/batch-delete", {
+      method: "POST",
+      body: JSON.stringify({ ids }),
+    });
+  }
+
+  async transferToSubAccount(
+    keyId: string,
+    input: { amount_nano_usd?: string; amount_usd?: string },
+  ): Promise<{
+    success: boolean;
+    api_key_balance_nano_usd: string;
+    user_balance_nano_usd: string;
+  }> {
+    return this.request(`/tokens/${keyId}/transfer`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  // Settings
+  async getSettings(): Promise<SystemSettings> {
+    return this.request("/settings");
+  }
+
+  async updateSettings(
+    settings: Partial<SystemSettings>,
+  ): Promise<SystemSettings> {
+    return this.request("/settings", {
+      method: "PUT",
+      body: JSON.stringify(settings),
+    });
+  }
+
+  async getPublicSettings(): Promise<PublicSystemSettings> {
+    return this.request("/settings/public");
+  }
+
+  // Dashboard
+  async getStats(): Promise<DashboardStats> {
+    return this.request("/stats");
+  }
+
+  async getConfigOverview(): Promise<ConfigOverview> {
+    return this.request("/config");
+  }
+
+  async listDashboardGroups(): Promise<DashboardGroupsResponse> {
+    return this.request("/groups");
+  }
+
+  // Groups registry (admin CRUD)
+  async createGroup(input: CreateGroupInput): Promise<Group> {
+    return this.request("/groups", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  async updateGroup(id: string, input: UpdateGroupInput): Promise<Group> {
+    return this.request(`/groups/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      body: JSON.stringify(input),
+    });
+  }
+
+  async reorderGroups(groupIds: string[]): Promise<{ success: boolean }> {
+    return this.request("/groups/reorder", {
+      method: "POST",
+      body: JSON.stringify({ group_ids: groupIds }),
+    });
+  }
+
+  async deleteGroup(id: string): Promise<{ success: boolean }> {
+    return this.request(`/groups/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    });
+  }
+
+  // Providers
+  async listProviders(): Promise<Provider[]> {
+    return this.request("/providers");
+  }
+
+  async getProvider(id: string): Promise<Provider> {
+    return this.request(`/providers/${id}`);
+  }
+
+  async createProvider(input: CreateProviderInput): Promise<Provider> {
+    return this.request("/providers", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  async updateProvider(
+    id: string,
+    input: UpdateProviderInput,
+  ): Promise<Provider> {
+    return this.request(`/providers/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(input),
+    });
+  }
+
+  async deleteProvider(id: string): Promise<void> {
+    await this.request(`/providers/${id}`, { method: "DELETE" });
+  }
+
+  async reorderProviders(providerIds: string[]): Promise<void> {
+    await this.request("/providers/reorder", {
+      method: "POST",
+      body: JSON.stringify({ provider_ids: providerIds }),
+    });
+  }
+
+  async getTransformRegistry(): Promise<TransformRegistryItem[]> {
+    return this.request("/transforms/registry");
+  }
+
+  async listCustomTransforms(): Promise<CustomTransform[]> {
+    const response = await this.request<{ transforms: CustomTransform[] }>(
+      "/custom-transforms",
+    );
+    return response.transforms;
+  }
+
+  async createCustomTransform(source: string): Promise<CustomTransform> {
+    return this.request("/custom-transforms", {
+      method: "POST",
+      body: JSON.stringify({ source }),
+    });
+  }
+
+  async updateCustomTransform(
+    id: string,
+    input: { source?: string; enabled?: boolean },
+  ): Promise<CustomTransform> {
+    return this.request(`/custom-transforms/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      body: JSON.stringify(input),
+    });
+  }
+
+  async deleteCustomTransform(id: string): Promise<void> {
+    await this.request(`/custom-transforms/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    });
+  }
+
+  async listModelMetadata(): Promise<ModelMetadataRecord[]> {
+    return this.request("/model-metadata");
+  }
+
+  async getModelMetadata(modelId: string): Promise<ModelMetadataRecord> {
+    return this.request(`/model-metadata/${encodeURIComponent(modelId)}`);
+  }
+
+  async upsertModelMetadata(
+    modelId: string,
+    input: UpsertModelMetadataInput,
+  ): Promise<ModelMetadataRecord> {
+    return this.request(`/model-metadata/${encodeURIComponent(modelId)}`, {
+      method: "PUT",
+      body: JSON.stringify(input),
+    });
+  }
+
+  async deleteModelMetadata(modelId: string): Promise<{ success: boolean }> {
+    return this.request(`/model-metadata/${encodeURIComponent(modelId)}`, {
+      method: "DELETE",
+    });
+  }
+
+  async syncModelMetadataFromModelsDev(): Promise<ModelMetadataSyncResult> {
+    return this.request("/model-metadata/sync/models-dev", {
+      method: "POST",
+    });
+  }
+
+  async listModelPrices(): Promise<ModelPriceRecord[]> {
+    return this.request("/model-prices");
+  }
+
+  async upsertModelPrice(
+    modelId: string,
+    input: UpsertModelPriceInput,
+  ): Promise<ModelPriceRecord> {
+    return this.request(`/model-prices/${encodeURIComponent(modelId)}`, {
+      method: "PUT",
+      body: JSON.stringify(input),
+    });
+  }
+
+  async deleteModelPrice(modelId: string): Promise<{ success: boolean }> {
+    return this.request(`/model-prices/${encodeURIComponent(modelId)}`, {
+      method: "DELETE",
+    });
+  }
+
+  async listUnpricedModels(): Promise<{ models: string[] }> {
+    return this.request("/model-prices/unpriced");
+  }
+
+  async listPriceSyncRuns(limit = 20): Promise<PriceSyncRun[]> {
+    return this.request(`/price-sync/runs?limit=${limit}`);
+  }
+
+  async previewPriceSync(source: PriceSyncSource): Promise<PriceSyncPreview> {
+    return this.request(`/price-sync/${encodeURIComponent(source)}/preview`, {
+      method: "POST",
+    });
+  }
+
+  async applyPriceSync(source: PriceSyncSource): Promise<PriceSyncRun> {
+    return this.request(`/price-sync/${encodeURIComponent(source)}/apply`, {
+      method: "POST",
+    });
+  }
+
+  async fetchChannelModels(input: FetchChannelModelsInput): Promise<{
+    models: string[];
+    compact_scheme?: "same_model" | "openai_compact_sibling";
+    compact_models?: string[];
+  }> {
+    const body: FetchChannelModelsInput = {
+      provider_type: input.provider_type,
+      base_url: input.base_url,
+    };
+    if (input.api_key?.trim()) body.api_key = input.api_key.trim();
+    if (input.provider_id?.trim()) body.provider_id = input.provider_id.trim();
+    if (input.channel_id?.trim()) body.channel_id = input.channel_id.trim();
+
+    return this.request("/fetch-channel-models", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  }
+
+  async probeChannelWebsocket(
+    input: ProbeChannelWebsocketInput,
+  ): Promise<ProbeChannelWebsocketResult> {
+    const body: ProbeChannelWebsocketInput = {
+      provider_type: input.provider_type,
+      base_url: input.base_url,
+    };
+    if (input.api_key?.trim()) body.api_key = input.api_key.trim();
+    if (input.provider_id?.trim()) body.provider_id = input.provider_id.trim();
+    if (input.channel_id?.trim()) body.channel_id = input.channel_id.trim();
+    if (input.model?.trim()) body.model = input.model.trim();
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    const response = await fetch(`${API_BASE}/probe-channel-websocket`, {
+      method: "POST",
+      headers,
+      credentials: "include",
+      body: JSON.stringify(body),
+    });
+    let data: {
+      supported?: boolean;
+      http_status?: number | null;
+      warmup?: ProbeChannelWebsocketResult["warmup"];
+      error?: string | null | { code?: string; message?: string };
+    } = {};
+    try {
+      data = (await response.json()) as typeof data;
+    } catch {
+      data = {};
+    }
+    const errorCode =
+      typeof data.error === "object" && data.error ? data.error.code : undefined;
+    const errorMessage =
+      typeof data.error === "string"
+        ? data.error
+        : data.error && typeof data.error === "object"
+          ? data.error.message
+          : undefined;
+    if (response.status === 401 && errorCode === "unauthorized") {
+      notifyDashboardUnauthorized();
+      throw new DashboardApiError(
+        errorCode || "unauthorized",
+        errorMessage || "unauthorized",
+      );
+    }
+    if (
+      response.ok &&
+      typeof data.supported === "boolean" &&
+      (data.warmup === "skipped" ||
+        data.warmup === "ok" ||
+        data.warmup === "protocol_error")
+    ) {
+      return {
+        supported: data.supported,
+        http_status: data.http_status ?? null,
+        warmup: data.warmup,
+        error: typeof data.error === "string" ? data.error : errorMessage ?? null,
+      };
+    }
+    return {
+      supported: false,
+      http_status: Number.isFinite(response.status) ? response.status : null,
+      warmup: "skipped",
+      error: errorMessage || `HTTP ${response.status}`,
+    };
+  }
+
+  async listRequestLogs(
+    limit = 50,
+    offset = 0,
+    filters?: RequestLogsFilter,
+  ): Promise<RequestLogsResponse> {
+    const params = new URLSearchParams();
+    params.set("limit", String(limit));
+    params.set("offset", String(offset));
+    if (filters?.model) params.set("model", filters.model);
+    if (filters?.status) params.set("status", filters.status);
+    if (filters?.api_key_id) params.set("api_key_id", filters.api_key_id);
+    if (filters?.username) params.set("username", filters.username);
+    if (filters?.search) params.set("search", filters.search);
+    if (filters?.time_from) params.set("time_from", filters.time_from);
+    if (filters?.time_to) params.set("time_to", filters.time_to);
+    if (filters?.scope) params.set("scope", filters.scope);
+    return this.request(`/request-logs?${params.toString()}`);
+  }
+
+  async getRequestCapture(
+    requestId: string,
+    userId?: string,
+  ): Promise<RequestCaptureDetail> {
+    const params = new URLSearchParams();
+    if (userId) params.set("user_id", userId);
+    const query = params.toString();
+    return this.request(
+      `/request-captures/${encodeURIComponent(requestId)}${query ? `?${query}` : ""}`,
+    );
+  }
+
+  async getDashboardAnalytics(
+    buckets = 8,
+    rangeHours = 24,
+  ): Promise<DashboardAnalytics> {
+    const params = new URLSearchParams();
+    params.set("buckets", String(buckets));
+    params.set("range_hours", String(rangeHours));
+    return this.request(`/analytics?${params.toString()}`);
+  }
+
+  async getDashboardPerformance(): Promise<DashboardPerformance> {
+    return this.request("/performance");
+  }
+
+  async getMyLiveUsage(): Promise<UserLiveUsage> {
+    return this.request("/me/live-usage");
+  }
+
+  async getAdminOverview(spendWindow = "24h"): Promise<AdminOverview> {
+    const params = new URLSearchParams();
+    params.set("spend_window", spendWindow);
+    return this.request(`/admin/overview?${params.toString()}`);
+  }
+
+  async testChannel(
+    providerId: string,
+    channelId: string,
+    model?: string,
+    stream = true,
+  ): Promise<ChannelTestResult> {
+    return this.request(`/providers/${providerId}/channels/${channelId}/test`, {
+      method: "POST",
+      body: JSON.stringify({ ...(model ? { model } : {}), stream }),
+    });
+  }
+
+  async listMarketplaceModels(): Promise<MarketplaceModelRecord[]> {
+    return this.request("/marketplace/models");
+  }
+
+  // Recharge (recharge-system.spec.md §9)
+  async listRechargeChannels(): Promise<RechargeChannel[]> {
+    const response = await this.request<{ channels: RechargeChannel[] }>(
+      "/recharge/channels",
+    );
+    return response.channels;
+  }
+
+  async createRechargeOrder(
+    input: CreateRechargeOrderInput,
+  ): Promise<CreateRechargeOrderResponse> {
+    return this.request("/recharge/orders", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  async listRechargeOrders(
+    limit = 20,
+    offset = 0,
+    filters?: RechargeOrdersFilter,
+  ): Promise<RechargeOrdersResponse> {
+    const params = new URLSearchParams();
+    params.set("limit", String(limit));
+    params.set("offset", String(offset));
+    if (filters?.status) params.set("status", filters.status);
+    if (filters?.username) params.set("username", filters.username);
+    return this.request(`/recharge/orders?${params.toString()}`);
+  }
+
+  async getRechargeOrder(orderId: string): Promise<RechargeOrder> {
+    const response = await this.request<{ order: RechargeOrder }>(
+      `/recharge/orders/${encodeURIComponent(orderId)}`,
+    );
+    return response.order;
+  }
+
+  async refundRechargeOrder(
+    orderId: string,
+    manual: boolean,
+  ): Promise<RechargeOrder> {
+    const response = await this.request<{ order: RechargeOrder }>(
+      `/recharge/orders/${encodeURIComponent(orderId)}/refund`,
+      {
+        method: "POST",
+        body: JSON.stringify({ manual }),
+      },
+    );
+    return response.order;
+  }
+
+  async listLedger(
+    limit = 20,
+    offset = 0,
+    kinds?: string[],
+    username?: string,
+  ): Promise<LedgerResponse> {
+    const params = new URLSearchParams();
+    params.set("limit", String(limit));
+    params.set("offset", String(offset));
+    if (kinds && kinds.length > 0) params.set("kinds", kinds.join(","));
+    if (username) params.set("username", username);
+    return this.request(`/ledger?${params.toString()}`);
+  }
+
+  // Payment channels (admin, recharge-system.spec.md §9.2)
+  async listPaymentChannels(): Promise<PaymentChannel[]> {
+    const response = await this.request<{ channels: PaymentChannel[] }>(
+      "/payment-channels",
+    );
+    return response.channels;
+  }
+
+  async createPaymentChannel(
+    input: CreatePaymentChannelInput,
+  ): Promise<PaymentChannel> {
+    const response = await this.request<{ channel: PaymentChannel }>(
+      "/payment-channels",
+      { method: "POST", body: JSON.stringify(input) },
+    );
+    return response.channel;
+  }
+
+  async updatePaymentChannel(
+    id: string,
+    input: UpdatePaymentChannelInput,
+  ): Promise<PaymentChannel> {
+    const response = await this.request<{ channel: PaymentChannel }>(
+      `/payment-channels/${encodeURIComponent(id)}`,
+      {
+        method: "PUT",
+        body: JSON.stringify(input),
+      },
+    );
+    return response.channel;
+  }
+
+  async deletePaymentChannel(id: string): Promise<void> {
+    await this.request(`/payment-channels/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    });
+  }
+}
+
+export const api = new ApiClient();
