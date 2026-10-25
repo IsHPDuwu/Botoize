@@ -16,7 +16,7 @@ from rest_framework.exceptions import PermissionDenied, ValidationError, Authent
 from rest_framework import serializers
 from .models import User, Bot, BotGrant, ApiKey, ApiCallAudit, AuditLog, DeliveryAttempt, Event, EventOutbox, Invitation
 from .services import authorize, encrypt_secret, issue_key, rotate_key, update_bot, validate_scopes
-from .official import get_self, send_message, MESSAGE_PATH, OfficialCredentialError
+from .official import get_self, send_message, upload_media, MEDIA_PATH, MESSAGE_PATH, OfficialCredentialError
 from .models import HttpSubscription
 from .models import QuotaPolicy, QuotaUsage
 from .subscriptions import disable_subscription, set_subscription, subscription_is_current
@@ -467,6 +467,8 @@ class Capabilities(APIView):
         operations = ['GET /users/@me'] if 'query:read' in request.effective_scopes else []
         if 'messages:send' in request.effective_scopes:
             operations += ['POST /v2/users/{user_openid}/messages', 'POST /v2/groups/{group_openid}/messages']
+        if 'media:upload' in request.effective_scopes:
+            operations += ['POST /v2/users/{user_openid}/files', 'POST /v2/groups/{group_openid}/files']
         return Response({'bot_id': request.auth.bot_id, 'scopes': request.effective_scopes, 'proxy_enabled': bool(operations), 'websocket_enabled': 'events:read' in request.effective_scopes, 'operations': operations})
 
 
@@ -612,10 +614,12 @@ class Proxy(DataPlaneAuditMixin, Capabilities):
             else:
                 action, params = path.rstrip('/'), request.data
             return invoke(request.auth.bot, request.effective_scopes, action, params, request.data.get('echo') if path == '' else None)
-        if not request.path.startswith('/qq/') or not MESSAGE_PATH.fullmatch(path):
+        media_upload = bool(MEDIA_PATH.fullmatch(path))
+        if not request.path.startswith('/qq/') or not (MESSAGE_PATH.fullmatch(path) or media_upload):
             return self.denied(request, path)
-        if 'messages:send' not in request.effective_scopes:
-            raise PermissionDenied('messages:send required')
+        required_scope = 'media:upload' if media_upload else 'messages:send'
+        if required_scope not in request.effective_scopes:
+            raise PermissionDenied(required_scope + ' required')
         raw = request.body
         if len(raw) > 1048576:
             return Response({'code': 'body_too_large', 'source': 'platform'}, status=413)
@@ -625,6 +629,13 @@ class Proxy(DataPlaneAuditMixin, Capabilities):
             raise ValidationError('JSON object required')
         if 'bot_id' in request.data and str(request.data['bot_id']) != str(request.auth.bot_id):
             raise PermissionDenied('Bot mismatch')
+        if media_upload:
+            # Official uploads can also send messages; never allow that side effect
+            # through an upload-only credential. Require an explicit choice.
+            if type(request.data.get('srv_send_msg')) is not bool:
+                raise ValidationError({'srv_send_msg': 'Explicit boolean required by this proxy'})
+            if request.data['srv_send_msg'] and 'messages:send' not in request.effective_scopes:
+                raise PermissionDenied('messages:send required for srv_send_msg=true')
         reservation = None
         cached = None
         if 'Idempotency-Key' in request.headers:
@@ -638,7 +649,8 @@ class Proxy(DataPlaneAuditMixin, Capabilities):
             except SendConflict as error:
                 return Response({'code': error.code, 'source': 'platform'}, status=409)
         try:
-            result = cached if cached is not None else send_message(
+            transport = upload_media if media_upload else send_message
+            result = cached if cached is not None else transport(
                 request.auth.bot, path, raw, request.META.get('QUERY_STRING', ''),
             )
             if reservation is not None and cached is None:

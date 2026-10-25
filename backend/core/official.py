@@ -62,6 +62,13 @@ def get_self(bot, query=''):
 
 
 MESSAGE_PATH = re.compile(r'v2/(?:users|groups)/[A-Za-z0-9_-]{1,128}/messages')
+MEDIA_PATH = re.compile(r'v2/(?:users|groups)/[A-Za-z0-9_-]{1,128}/files')
+
+
+def upload_media(bot, path, body, query=''):
+    if not MEDIA_PATH.fullmatch(path):
+        raise ValueError('Unregistered official media path')
+    return _request(bot, 'POST', path, query, body)
 
 
 def send_message(bot, path, body, query=''):

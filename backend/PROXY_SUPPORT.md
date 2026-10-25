@@ -7,8 +7,16 @@
 | `GET /qq/users/@me` | `query:read` |
 | `POST /qq/v2/users/{user_openid}/messages` | `messages:send` |
 | `POST /qq/v2/groups/{group_openid}/messages` | `messages:send` |
+| `POST /qq/v2/users/{user_openid}/files` | `media:upload`；srv_send_msg=true 另需 messages:send |
+| `POST /qq/v2/groups/{group_openid}/files` | `media:upload`；srv_send_msg=true 另需 messages:send |
 
 消息请求仅接受 JSON 对象，正文最大 1 MiB，原始字节透传，不添加或递增 `msg_seq`。OpenID 当前接受字母、数字、下划线及短横线，长度 1–128。未登记路径返回 501。官方响应正文最大 64 KiB。
+
+媒体 files 请求同样限 JSON 正文 1 MiB（平台保守上限，不是官方 5M 二进制直传上限）。
+必须显式传布尔 `srv_send_msg`：false 仅上传，true 具有主动发消息副作用并额外检查 messages:send。
+URL 上传由 QQ 官方下载，代理不会下载该 URL；请求原字节及官方 file_info、file_uuid、ttl、raw_url 原样透传，不解析 opaque file_info 或延长其有效期。
+单聊/群聊 file_info 的场景范围由官方限制，不能互换。支持 files 的 URL、受正文上限约束的 file_data、已有 upload_id 合并请求；尚未代理 upload_prepare/upload_part_finish 或代传 COS 分片，不声称完整大文件流程。
+媒体 files POST 同样支持 Idempotency-Key，并在未知结果时不自动重试。
 
 保留官方 HTTP 状态、响应正文以及 Content-Type、X-Tps-trace-ID、Retry-After。201/202 不代表最终消息送达；仍须处理官方异步审核语义。禁止自动重定向，不自动重试消息。平台返回 `official_outcome_unknown` 时无法确定发送结果，调用方不得盲目重发。
 
@@ -49,12 +57,15 @@
 不能盲目重发。1400 表示参数错误，1403 为缺权限，1404 为动作不支持，1500 为官方非 2xx。
 官方接受响应也不保证业务消息最终送达。
 
-目前未实现：上传、撤回、频道消息、官方 Gateway 上游 WS、OneBot 事件转换/WS、
+目前未实现：大文件预上传/分片流程、撤回、频道消息、官方 Gateway 上游 WS、OneBot 事件转换/WS、
 异步审核跟踪。数据面调用已持久化 request_id、路由模板、状态和耗时，应用已提供按 Key/Admin/Bot 共享的数据库限流；
 下游回调另提供 HMAC 签名、投递历史和受权人工重放。当前官方请求测试使用模拟上游，
 未完成真实官方账号联调；不可据此视为可生产部署。
 
 核对来源：
+- 媒体接口核实日期：2026-10-25；官方页面标注更新于 2026-10-09。
+- https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_users_user_openid_files.post.html
+- https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_group_openid_files.post.html
 - https://bot.q.qq.com/wiki/develop/api-v2/dev-prepare/access-token.html
 - https://bot.q.qq.com/wiki/develop/api-v2/dev-prepare/api-call-guide.html
 - https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_users_user_openid_messages.post.html

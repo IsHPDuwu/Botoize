@@ -105,7 +105,7 @@ def test_message_proxy_denies_scope_and_does_not_retry_unknown_outcome(setup):
         upstream.assert_called_once()
     with patch('core.views.send_message') as upstream:
         assert c.post('/qq/v2/users/openid/messages', {'bot_id': other.pk}, format='json').status_code == 403
-        assert c.post('/qq/v2/users/openid/files', {}, format='json').status_code == 501
+        assert c.post('/qq/v2/users/openid/files', {}, format='json').status_code == 403
         upstream.assert_not_called()
 
 

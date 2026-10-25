@@ -41,7 +41,7 @@
 
 ## 尚未实现与待外部验收（不同阶段）
 
-尚未实现：官方 Gateway 上游 WS、媒体上传/撤回/频道 API、OneBot 事件转换与 WS、完整 OpenAPI；这些不是仅待联调的已完成功能。
+尚未实现：官方 Gateway 上游 WS、媒体预上传/分片流程、撤回/频道 API、OneBot 事件转换与 WS、完整 OpenAPI；这些不是仅待联调的已完成功能。单聊/群聊 files 有限代理已实现，具体范围及副作用权限见 PROXY_SUPPORT.md。
 
 已实现并有自动化测试：邀请、Admin 生命周期、Bot/凭据生命周期、Key 轮换、数据库共享限流、可配置平台/Bot/用户/Key 共享请求配额、可选发送幂等、回调签名、DeliveryAttempt、人工 replay 和数据面调用审计。配额管理契约见 API.md；幂等和过期响应清理见 PROXY_SUPPORT.md。
 
