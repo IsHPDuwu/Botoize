@@ -1,4 +1,4 @@
-# 管理与授权 API
+# Botoize 管理与授权 API
 
 本文描述授权接口；数据面以 `PROXY_SUPPORT.md`、`WEBHOOK_STATUS.md` 为准，
 部署入口见 `DEPLOYMENT.md`。已实现的有限代理能力不等于全量官方 API 兼容。
@@ -71,8 +71,20 @@ Owner 可通过 `POST /api/v1/invitations/` 创建一次性、72 小时默认有
 - POST `/api/v1/owner/keys/{id}/revoke/`：Owner 可撤销他人 Key，password。
 - GET `/api/v1/my-grants/`：自己的当前有效 Bot、scopes 与 revision。
 - GET `/api/v1/subscriptions/`：自己的 HTTP 订阅及 is_current，不返回其他用户配置。
-- POST `/api/v1/subscriptions/`：bot,is_active,password；启用时必须有 url。
+- POST `/api/v1/subscriptions/`：bot,is_active；启用时必须有 url，可选 callback_secret（32–256 字符）。不传 id 创建额外回调，传 id 只编辑/禁用当前账号的该回调；禁用必须传 id。无回调数量上限。
   需要自己的显式 Grant，包括 Owner。启用检查 events:read；禁用可清理失效订阅。
+
+## 控制台新增契约（0022 / 0023）
+
+- 所有非登录管理写请求只需要已有 Session 和 CSRF，不要求再次提交 password；上方旧示例的 password 为兼容忽略字段，不是认证要求。
+- Owner `POST /api/v1/users/`：username、new_password（12–256 字符），可选 email；只能创建 Admin。`PATCH /api/v1/users/{id}/` 可编辑 username/email/new_password/is_active，不能操作 Owner 或修改角色。密码重置使旧登录会话失效；停用还会提升授权版本、撤销 Key，不删除历史记录。
+- Owner 用户列表增加 email/date_joined/last_login；Admin 用户目录只返回其他有效 Admin 的基本摘要，不返回邮箱与登录时间。
+- Owner `POST /api/v1/invitations/{id}/revoke/` 使未使用邀请立即过期；公开 `/register` 页面接受一次性邀请，固定创建 Admin。
+- 多回调各有独立 revision、加密 HMAC 密钥、投递任务和重试。修改地址/密钥/启停会取消对应回调旧待处理任务，不能将旧任务发送到新地址。新回调只接收未来事件，不回填历史。
+- `/api/v1/deliveries/` 和 overview 的投递统计只包括已绑定 HTTPS 订阅的任务，不把仅供拉取/WS 的 stream 游标计算为待投递。同一事件多回调扇出，HTTP/WS 拉取仍只出现一次。
+- `/api/v1/api-calls/` 在账号隔离后、分页前接受 search、username、path、bot、api_key、method、status（精确状态或 2xx–5xx）、replayed=true/false、from/to（带时区 ISO，含开始不含结束）。保留脱敏路径；新增 bot_name/username/key_name 快照，删除关联后仍保留历史名称。旧记录已删除的身份不能恢复。
+- overview 增加 API 调用/2xx/4xx–5xx、有效 Gateway worker 租约数量和 channels 配置/租约/最近 HTTP 快照；租约不代表在线，Admin 仅可见自己的调用状态。
+- 独立系统仪表盘 `/dashboard/admin-dashboard` 位于平台管理；普通仪表盘不展示 Channels 状态。API 接入说明包含 Koishi 真实字段及当前不兼容边界，详见 `KOISHI_COMPATIBILITY.md`。
 - GET `/api/v1/events/?before=CURSOR`：已入库事件，最多 50 条。
 - GET `/api/v1/deliveries/?before=CURSOR`：真实投递状态、尝试次数、重试与租约时间，最多 50 条。
   Owner 全局可见，Admin 仅见自身当前版本且具有 events:read 的授权快照。

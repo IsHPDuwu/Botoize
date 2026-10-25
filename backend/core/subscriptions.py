@@ -37,7 +37,7 @@ def validate_callback(url):
 
 
 @transaction.atomic
-def set_subscription(grant_id, url, actor='console', callback_secret=None):
+def set_subscription(grant_id, url, actor='console', callback_secret=None, *, subscription_id=None, create=False):
     url = validate_callback(url)
     if callback_secret is not None and (
         not isinstance(callback_secret, str) or not 32 <= len(callback_secret) <= 256
@@ -47,30 +47,42 @@ def set_subscription(grant_id, url, actor='console', callback_secret=None):
     from .conversations import grant_current
     if not (grant_current(grant) and 'events:read' in grant.scopes):
         raise ValueError('Active events:read grant required')
-    existing = HttpSubscription.objects.filter(grant=grant).first()
+    existing = (HttpSubscription.objects.get(grant=grant, pk=subscription_id) if subscription_id is not None
+                else None if create else HttpSubscription.objects.filter(grant=grant).order_by('pk').first())
+    if not create and subscription_id is None and HttpSubscription.objects.filter(grant=grant).count() > 1:
+        raise ValueError('Specify subscription ID when editing multiple callbacks')
     encrypted = (
         _encrypt_callback_secret(callback_secret) if callback_secret is not None
         else existing.encrypted_callback_secret if existing
         else _encrypt_callback_secret(secrets.token_urlsafe(32))
     )
-    subscription, _ = HttpSubscription.objects.update_or_create(
-        grant=grant,
-        defaults={
-            'url': url,
-            'grant_revision': grant.revision,
-            'encrypted_callback_secret': encrypted,
-            'is_active': True,
-        },
-    )
+    subscription = existing or HttpSubscription(grant=grant)
+    if existing:
+        subscription.revision += 1
+        from .models import EventOutbox
+        EventOutbox.objects.filter(subscription=existing, state__in=['pending', 'processing']).update(
+            state='cancelled', lease_token=None, lease_until=None, available_at=None)
+    subscription.url = url
+    subscription.grant_revision = grant.revision
+    subscription.encrypted_callback_secret = encrypted
+    subscription.is_active = True
+    subscription.save()
     AuditLog.objects.create(actor=actor, action='subscription.set', target=str(subscription.pk))
     return subscription
 
 
 @transaction.atomic
-def disable_subscription(grant_id, actor='console'):
-    subscription = HttpSubscription.objects.select_for_update().get(grant_id=grant_id)
+def disable_subscription(grant_id, actor='console', *, subscription_id=None):
+    rows = HttpSubscription.objects.select_for_update().filter(grant_id=grant_id)
+    if subscription_id is None and rows.count() > 1:
+        raise ValueError('Specify subscription ID when disabling multiple callbacks')
+    subscription = rows.get(pk=subscription_id) if subscription_id is not None else rows.get()
     subscription.is_active = False
-    subscription.save(update_fields=['is_active', 'updated_at'])
+    subscription.revision += 1
+    subscription.save(update_fields=['is_active', 'revision', 'updated_at'])
+    from .models import EventOutbox
+    EventOutbox.objects.filter(subscription=subscription, state__in=['pending', 'processing']).update(
+        state='cancelled', lease_token=None, lease_until=None, available_at=None)
     AuditLog.objects.create(actor=actor, action='subscription.disable', target=str(subscription.pk))
 
 

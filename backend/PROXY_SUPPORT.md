@@ -1,5 +1,7 @@
 # 官方代理当前支持范围
 
+产品名称为 Botoize。原版 Koishi QQ 适配器与 adapter-qq-crack 1.0.31 不能只改 endpoint 连接本项目；它们的官方 token / QQBot 认证与 Gateway 协议尚无下游兼容层。真实配置字段、源码核对及建议方案见 `KOISHI_COMPATIBILITY.md`，不将自定义地址等同于协议兼容。
+
 QQ 官方默认上游为 `https://api.bot.qq.com`，Channel 可配置经过公网 HTTPS 校验的 base_url；下游使用 `Authorization: Bearer <API Key>`，平台在服务端替换为上游凭证。
 自定义上游会接收 Channel 的 AppID/AppSecret，请仅配置可信服务。其 DNS 固定到经过校验的公网 IP，禁止跳转；token 缓存按 Bot、凭据和完整 base_url 隔离。
 官方 HTTPS API 默认读取标准 `HTTPS_PROXY` / `https_proxy` 及 `NO_PROXY`；Gateway 也自动发现环境代理（另支持 WSS_PROXY / ALL_PROXY，遵循 websockets 库优先级）。建议 `HTTPS_PROXY=http://127.0.0.1:7890`、`NO_PROXY=127.0.0.1,localhost`。旧 `QQ_HTTP_PROXY` 非空时为显式覆盖。自定义上游与回调不使用环境代理，保留 DNS pinning。

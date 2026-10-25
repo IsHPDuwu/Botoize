@@ -92,13 +92,15 @@ def test_management_subscription_isolation(grant):
     grant.user.save()
     client.force_authenticate(grant.user)
     data = {'bot': grant.bot_id, 'url': 'https://example.com/hook', 'is_active': True, 'password': 'test-password-long'}
-    assert client.post('/api/v1/subscriptions/', data, format='json').status_code == 201
+    created = client.post('/api/v1/subscriptions/', data, format='json')
+    assert created.status_code == 201
     assert client.get('/api/v1/subscriptions/').json()[0]['is_current']
     other = User.objects.create_user('other', password='test-password-long', role='Owner')
     client.force_authenticate(other)
     assert client.get('/api/v1/subscriptions/').json() == []
     assert client.post('/api/v1/subscriptions/', data, format='json').status_code == 404
     client.force_authenticate(grant.user)
+    data['id'] = created.json()['id']
     data['password'] = 'wrong'
     assert client.post('/api/v1/subscriptions/', data, format='json').status_code == 201
     data['password'] = 'test-password-long'

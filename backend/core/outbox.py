@@ -36,8 +36,9 @@ def claim_outbox(limit=100, lease_seconds=60, max_attempts=5, subscribed_only=Fa
     candidates = EventOutbox.objects.filter(eligible)
     if subscribed_only:
         candidates = candidates.filter(
-            grant__httpsubscription__is_active=True,
-            grant__httpsubscription__grant_revision=F('grant_revision'),
+            subscription__is_active=True,
+            subscription__grant_revision=F('grant_revision'),
+            subscription__revision=F('subscription_revision'),
         )
     ids = list(candidates.order_by('pk').values_list('pk', flat=True)[:limit])
     claimed = []
@@ -69,7 +70,13 @@ def validate_lease(pk, token):
     ).first()
     if row is None:
         return False
-    if valid_snapshot(row):
+    sub_valid = True
+    if row.subscription_id:
+        from .subscriptions import subscription_is_current
+        sub = row.subscription
+        sub_valid = (sub.grant_id == row.grant_id and sub.revision == row.subscription_revision
+                     and subscription_is_current(sub))
+    if valid_snapshot(row) and sub_valid:
         return True
     EventOutbox.objects.filter(pk=pk, state='processing', lease_token=token).update(
         state='cancelled', lease_token=None, lease_until=None,

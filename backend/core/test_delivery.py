@@ -86,7 +86,7 @@ def test_callback_signature_binds_timestamp_delivery_id_and_body():
 
 def test_delivery_and_dedup():
     _, row = queued()
-    secret = decrypt_callback_secret(row.grant.httpsubscription)
+    secret = decrypt_callback_secret(row.subscription)
     with patch('core.delivery.post_event', return_value=True) as send:
         assert deliver_batch()['delivered'] == 1
         assert deliver_batch()['claimed'] == 0

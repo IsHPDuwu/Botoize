@@ -4,7 +4,7 @@ import pytest
 from django.test import Client
 from django.utils import timezone
 
-from .models import Bot, BotGrant, Event, EventOutbox, User
+from .models import Bot, BotGrant, Event, EventOutbox, HttpSubscription, User
 
 
 @pytest.mark.django_db
@@ -19,7 +19,8 @@ def test_dashboard_overview_scopes_admin_to_current_grants():
     old_event = Event.objects.create(bot=first, event_id='old', event_type='old', payload={})
     recent_event = Event.objects.create(bot=first, event_id='recent', event_type='recent', payload={})
     Event.objects.filter(pk=old_event.pk).update(received_at=timezone.now() - timedelta(days=2))
-    EventOutbox.objects.create(event=recent_event, grant=grant, grant_revision=grant.revision, state='delivered')
+    subscription = HttpSubscription.objects.create(grant=grant, url='https://example.com', grant_revision=grant.revision)
+    EventOutbox.objects.create(event=recent_event, grant=grant, grant_revision=grant.revision, state='delivered', subscription=subscription, subscription_revision=subscription.revision)
     Event.objects.create(bot=second, event_id='hidden', event_type='hidden', payload={})
 
     client = Client()

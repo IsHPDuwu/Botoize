@@ -33,6 +33,8 @@ Gateway 与 Webhook 同时启用时仅按官方 event ID 去重；不得假设�
 
 ## 升级、备份与开发验收
 
+- 当前迁移至 0023：0022 将授权订阅改为一对多、为 Outbox 绑定确切回调与 revision、增加日志名称快照；0023 回填旧回调目标与可恢复名称。升级仍需先备份数据库和加密密钥，migrate 完成后重启 API、Gateway 与投递 worker，防止旧进程继续使用单订阅模型。无待迁移时可重复执行。
+
 - 升级前备份数据库与独立保存的 BOT_ENCRYPTION_KEY；先在备份副本演练 migrate。0019 保留旧 Bot ID 和授权，将旧共享 Channel 拆为一 Bot 一 Channel；0020 修复旧创建流程的默认 Channel 隔离；0021 添加 API 审计消息类型和重放标记，历史行保留且重放状态未知。
 - 新 Key 按产品要求在数据库明文保存原 token，只有摘要的历史 token 无法恢复。限制数据库、备份与日志访问；备份介质应加密，撤销泄露凭据。不要将 .env、config.txt、SECRET.txt 提交或放入前端资源。
 - 官方 HTTP 和 Gateway 默认使用标准 `HTTPS_PROXY=http://127.0.0.1:7890`、`NO_PROXY=127.0.0.1,localhost`。backend/.env 自动加载，已导出的环境变量优先；旧 QQ_HTTP_PROXY 非空为兼容覆盖。自定义上游和回调不读代理，保持公网校验。开发服务使用 --reload；生产不要使用。

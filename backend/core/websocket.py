@@ -24,7 +24,7 @@ def onebot_identity(token):
         if status != 200:
             raise ValueError('Upstream identity unavailable')
         identity = virtual_id(key.bot, 'user', json.loads(body)['id'])
-        cursor = EventOutbox.objects.filter(grant__user_id=key.user_id, grant__bot_id=key.bot_id).order_by('-pk').values_list('pk', flat=True).first() or 0
+        cursor = EventOutbox.objects.filter(is_stream=True, grant__user_id=key.user_id, grant__bot_id=key.bot_id).order_by('-pk').values_list('pk', flat=True).first() or 0
         return identity, cursor
     except (OfficialCredentialError, ValueError, TypeError, KeyError) as exc:
         raise PermissionDenied('Upstream identity unavailable') from exc
@@ -38,6 +38,7 @@ def read_onebot_page(token, cursor, self_id):
     try:
         key, _ = authorize(token, scope='events:read')
         rows = EventOutbox.objects.filter(
+            is_stream=True,
             grant__user_id=key.user_id, grant__bot_id=key.bot_id,
             grant_revision=key.grant_revision, event__bot_id=key.bot_id,
             pk__gt=cursor,
@@ -53,6 +54,7 @@ def read_page(token, cursor):
     try:
         key, _ = authorize(token, scope='events:read')
         rows = EventOutbox.objects.filter(
+            is_stream=True,
             grant__user_id=key.user_id, grant__bot_id=key.bot_id,
             grant_revision=key.grant_revision, event__bot_id=key.bot_id,
             pk__gt=cursor,

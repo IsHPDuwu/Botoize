@@ -108,6 +108,7 @@ def test_events_filter_before_pagination_and_ws_and_live_key_edit(setup):
     # Old snapshots may have been created under an unrestricted grant.
     grant.all_conversations = True
     grant.save()
+    set_subscription(grant.pk, 'https://example.com/callback')
     for index in range(55):
         event(bot, 'denied', index)
     visible = event(bot, 'allowed', 100)

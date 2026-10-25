@@ -3,7 +3,7 @@ import hashlib
 import secrets
 from datetime import timedelta
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from .models import AuditLog, Invitation, User
@@ -35,8 +35,20 @@ def accept_invitation(token, username, password, email=''):
         raise ValueError('Invalid invitation')
     if not isinstance(username, str) or not username or len(username) > 150:
         raise ValueError('Invalid username')
-    if not isinstance(password, str) or len(password) < 12:
+    import re
+    if not re.fullmatch(r'[\w.@+-]+', username):
+        raise ValueError('Invalid username')
+    if not isinstance(password, str) or not 12 <= len(password) <= 256:
         raise ValueError('Password must contain at least 12 characters')
+    if not isinstance(email, str) or len(email) > 254:
+        raise ValueError('Invalid email')
+    if email:
+        from django.core.validators import validate_email
+        from django.core.exceptions import ValidationError
+        try:
+            validate_email(email)
+        except ValidationError:
+            raise ValueError('Invalid email') from None
     invitation = Invitation.objects.select_for_update().select_related('created_by').filter(
         token_digest=_digest(token), used_at__isnull=True, expires_at__gt=timezone.now(),
     ).first()
@@ -44,7 +56,11 @@ def accept_invitation(token, username, password, email=''):
         raise ValueError('Invitation is invalid or expired')
     if User.objects.filter(username=username).exists():
         raise ValueError('Username already exists')
-    user = User.objects.create_user(username=username, password=password, email=email or '', role=User.Role.ADMIN)
+    try:
+        with transaction.atomic():
+            user = User.objects.create_user(username=username, password=password, email=email or '', role=User.Role.ADMIN)
+    except IntegrityError:
+        raise ValueError('Username already exists') from None
     invitation.used_at = timezone.now()
     invitation.accepted_by = user
     invitation.save(update_fields=['used_at', 'accepted_by'])

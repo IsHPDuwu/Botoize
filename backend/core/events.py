@@ -40,8 +40,15 @@ def ingest_event(bot, payload):
         if isinstance(message, str) and 1 <= len(message) <= 256:
             virtual_id(current, 'message', message)
     grants = BotGrant.objects.select_for_update().filter(bot=current, is_active=True, user__is_active=True)
-    EventOutbox.objects.bulk_create([
-        EventOutbox(event=event, grant=grant, grant_revision=grant.revision)
-        for grant in grants if 'events:read' in grant.scopes and grant_current(grant) and event_allowed(grant, payload)
-    ])
+    from .subscriptions import subscription_is_current
+    rows = []
+    for grant in grants:
+        if not ('events:read' in grant.scopes and grant_current(grant) and event_allowed(grant, payload)):
+            continue
+        subscriptions = [sub for sub in grant.subscriptions.order_by('pk') if subscription_is_current(sub)]
+        for index, sub in enumerate(subscriptions or [None]):
+            rows.append(EventOutbox(event=event, grant=grant, grant_revision=grant.revision,
+                                    is_stream=index == 0, subscription=sub,
+                                    subscription_revision=sub.revision if sub else None))
+    EventOutbox.objects.bulk_create(rows)
     return event, True

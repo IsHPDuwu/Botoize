@@ -95,7 +95,7 @@ def deliver_batch(limit=20):
         result['claimed'] += 1
         row = EventOutbox.objects.select_related('event').filter(pk=pk).first()
         sub = HttpSubscription.objects.select_related('grant__user', 'grant__bot').filter(
-            grant_id=row.grant_id,
+            pk=row.subscription_id, grant_id=row.grant_id, revision=row.subscription_revision,
         ).first() if row else None
         if not sub or not subscription_is_current(sub) or sub.grant_revision != row.grant_revision:
             finish_outbox(pk, token, False)

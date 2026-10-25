@@ -45,6 +45,7 @@ def call_action(token, envelope):
         finally:
             ApiCallAudit.objects.create(
                 api_key=key, user=key.user, bot=key.bot, request_id=uuid.uuid4().hex,
+                bot_name=key.bot.name, username=key.user.username, key_name=key.name,
                 method='WS', path='/onebot/api', status_code=status,
                 duration_ms=max(0, int((time.monotonic() - started) * 1000)),
             )

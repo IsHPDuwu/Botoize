@@ -128,6 +128,9 @@ class Event(models.Model):
 
 
 class EventOutbox(models.Model):
+    subscription = models.ForeignKey('HttpSubscription', null=True, blank=True, on_delete=models.PROTECT)
+    subscription_revision = models.PositiveBigIntegerField(null=True)
+    is_stream = models.BooleanField(default=True)
     event = models.ForeignKey(Event, on_delete=models.CASCADE)
     grant = models.ForeignKey(BotGrant, on_delete=models.CASCADE)
     grant_revision = models.PositiveBigIntegerField()
@@ -140,7 +143,10 @@ class EventOutbox(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        constraints = [models.UniqueConstraint(fields=['event', 'grant'], name='unique_event_grant')]
+        constraints = [
+            models.UniqueConstraint(fields=['event', 'grant'], condition=models.Q(is_stream=True), name='unique_event_stream_grant'),
+            models.UniqueConstraint(fields=['event', 'subscription'], name='unique_event_subscription'),
+        ]
         indexes = [models.Index(fields=['state', 'id'], name='outbox_scan')]
 
 
@@ -167,7 +173,8 @@ class DeliveryAttempt(models.Model):
 
 
 class HttpSubscription(models.Model):
-    grant = models.OneToOneField(BotGrant, on_delete=models.CASCADE)
+    grant = models.ForeignKey(BotGrant, on_delete=models.CASCADE, related_name='subscriptions')
+    revision = models.PositiveBigIntegerField(default=1)
     grant_revision = models.PositiveBigIntegerField()
     url = models.URLField(max_length=2048)
     encrypted_callback_secret = models.TextField()
@@ -183,6 +190,9 @@ class AuditLog(models.Model):
 
 
 class ApiCallAudit(models.Model):
+    bot_name = models.CharField(max_length=120, blank=True)
+    username = models.CharField(max_length=150, blank=True)
+    key_name = models.CharField(max_length=120, blank=True)
     api_key = models.ForeignKey(ApiKey, on_delete=models.SET_NULL, null=True, blank=True)
     user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
     bot = models.ForeignKey(Bot, on_delete=models.SET_NULL, null=True, blank=True)

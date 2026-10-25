@@ -10,13 +10,14 @@ from .outbox import valid_snapshot
 @transaction.atomic
 def replay_delivery(delivery_id, actor):
     row = EventOutbox.objects.select_for_update().select_related(
-        'grant__user', 'grant__bot', 'grant__httpsubscription', 'event',
+        'grant__user', 'grant__bot', 'subscription', 'event',
     ).filter(pk=delivery_id).first()
     if row is None:
         raise LookupError
     if not actor.is_active or (actor.role != User.Role.OWNER and row.grant.user_id != actor.pk):
         raise LookupError
-    subscription = HttpSubscription.objects.filter(grant_id=row.grant_id).first()
+    subscription = HttpSubscription.objects.filter(pk=row.subscription_id, grant_id=row.grant_id,
+                                                   revision=row.subscription_revision).first()
     if not (
         row.state in ('failed', 'delivered')
         and valid_snapshot(row)

@@ -22,6 +22,7 @@ urlpatterns = [
     path('api/v1/users/<int:pk>/', views.UserLifecycle.as_view()),
     path('api/v1/invitations/', views.Invitations.as_view()),
     path('api/v1/invitations/accept/', views.AcceptInvitation.as_view()),
+    path('api/v1/invitations/<int:pk>/revoke/', views.RevokeInvitation.as_view()),
     path('api/v1/events/', views.ManagementEvents.as_view()),
     path('api/v1/deliveries/', views.Deliveries.as_view()),
     path('api/v1/deliveries/<int:pk>/attempts/', views.DeliveryAttempts.as_view()),

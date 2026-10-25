@@ -68,6 +68,16 @@ def schema():
         add(path, 'get', 'list' + name)
         paths[path]['get']['parameters'] = [{'in': 'query', 'name': 'before', 'schema': {'type': 'string', 'pattern': '^[0-9]{1,18}$'}}]
     add('/api/v1/dashboard/overview/', 'get', 'dashboardOverview')
+    for name, field_schema in {
+        'search': {**STRING, 'maxLength': 200}, 'username': {**STRING, 'maxLength': 150},
+        'path': {**STRING, 'maxLength': 512}, 'bot': INTEGER, 'api_key': INTEGER,
+        'method': {'type': 'string', 'enum': ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS', 'WS']},
+        'status': {**STRING, 'description': 'Exact HTTP status 100–599, or 2xx / 3xx / 4xx / 5xx'},
+        'replayed': {'type': 'string', 'enum': ['true', 'false']},
+        'from': {**STRING, 'format': 'date-time', 'description': 'Inclusive, timezone required'},
+        'to': {**STRING, 'format': 'date-time', 'description': 'Exclusive, timezone required'},
+    }.items():
+        paths['/api/v1/api-calls/']['get']['parameters'].append({'in': 'query', 'name': name, 'schema': field_schema})
     paths['/api/v1/dashboard/overview/']['get']['parameters'] = [
         {'in': 'query', 'name': 'window_hours', 'schema': {'type': 'integer', 'enum': [24, 168, 720], 'default': 24}},
     ]
@@ -77,9 +87,14 @@ def schema():
     add('/api/v1/bots/{id}/', 'patch', 'updateBot', properties={
         'name': STRING, 'app_id': STRING, 'secret': PASSWORD, 'is_active': BOOLEAN, 'password': PASSWORD,
     }, required=['password'])
+    add('/api/v1/users/', 'post', 'createUser', status='201', properties={
+        'username': {**STRING, 'maxLength': 150}, 'email': {'type': 'string', 'format': 'email'},
+        'new_password': {**PASSWORD, 'minLength': 12, 'maxLength': 256},
+    }, required=['username', 'new_password'])
     add('/api/v1/users/{id}/', 'patch', 'setAdminActive', properties={
-        'is_active': BOOLEAN, 'password': PASSWORD,
-    }, required=['is_active', 'password'])
+        'is_active': BOOLEAN, 'username': {**STRING, 'maxLength': 150},
+        'email': {'type': 'string', 'format': 'email'}, 'new_password': {**PASSWORD, 'minLength': 12, 'maxLength': 256},
+    })
     add('/api/v1/grants/', 'post', 'setGrant', properties={
         'user': INTEGER, 'bot': INTEGER, 'scopes': SCOPES, 'is_active': BOOLEAN, 'password': PASSWORD,
     }, required=['user', 'bot', 'scopes', 'password'])
@@ -93,10 +108,12 @@ def schema():
         'name': STRING, 'scopes': SCOPES, 'expires_at': DATE, 'password': PASSWORD,
     }, required=['password'])
     add('/api/v1/subscriptions/', 'post', 'setSubscription', status='201', properties={
-        'bot': INTEGER, 'url': {'type': 'string', 'format': 'uri'}, 'is_active': BOOLEAN,
+        'id': INTEGER, 'bot': INTEGER, 'url': {'type': 'string', 'format': 'uri'}, 'is_active': BOOLEAN,
         'callback_secret': {**PASSWORD, 'minLength': 32, 'maxLength': 256}, 'password': PASSWORD,
     }, required=['bot', 'is_active', 'password'])
     paths['/api/v1/subscriptions/']['post']['responses']['204'] = {'description': 'Subscription disabled'}
+    paths['/api/v1/subscriptions/']['post']['description'] = 'Omit id to create an additional callback (no count cap); supply id to edit/disable this account’s exact callback. Editing cancels old pending work. New callbacks receive future events only.'
+    add('/api/v1/invitations/{id}/revoke/', 'post', 'revokeInvitation', status='204', properties={})
     add('/api/v1/invitations/', 'post', 'createInvitation', status='201', properties={
         'expires_hours': {'type': 'integer', 'minimum': 1, 'maximum': 720, 'default': 72}, 'password': PASSWORD,
     }, required=['password'])
@@ -171,24 +188,25 @@ def schema():
     schemas = {
         'Bot': bot, 'Conversation': conversation, 'Provider': provider, 'Key': key, 'Grant': grant,
         'IssuedKey': {**key, 'properties': {**key['properties'], 'token': STRING, 'rotated_key': INTEGER}},
-        'User': object_schema({'id': INTEGER, 'username': STRING, 'role': {'type': 'string', 'enum': ['Owner', 'Admin']}, 'is_active': BOOLEAN, 'csrfToken': STRING}),
-        'Event': object_schema({'id': INTEGER, 'bot': INTEGER, 'event_id': STRING, 'event_type': STRING, 'received_at': DATE, 'payload': {'type': 'object', 'additionalProperties': True}}),
-        'Delivery': object_schema({'id': INTEGER, 'event_id': STRING, 'bot': INTEGER, 'user': INTEGER, 'state': {'type': 'string', 'enum': ['pending', 'processing', 'failed', 'delivered', 'cancelled']}, 'attempts': {'type': 'integer'}, 'available_at': DATE, 'lease_until': DATE}),
+        'User': object_schema({'id': INTEGER, 'username': STRING, 'role': {'type': 'string', 'enum': ['Owner', 'Admin']}, 'is_active': BOOLEAN, 'csrfToken': STRING, 'email': STRING, 'date_joined': DATE, 'last_login': DATE}),
+        'Event': object_schema({'id': INTEGER, 'bot': INTEGER, 'bot_name': STRING, 'event_id': STRING, 'event_type': STRING, 'received_at': DATE, 'payload': {'type': 'object', 'additionalProperties': True}}),
+        'Delivery': object_schema({'id': INTEGER, 'event_id': STRING, 'bot': INTEGER, 'bot_name': STRING, 'user': INTEGER, 'username': STRING, 'subscription': INTEGER, 'state': {'type': 'string', 'enum': ['pending', 'processing', 'failed', 'delivered', 'cancelled']}, 'attempts': {'type': 'integer'}, 'available_at': DATE, 'lease_until': DATE}),
         'Subscription': object_schema({'id': INTEGER, 'bot': INTEGER, 'url': {'type': 'string', 'format': 'uri'}, 'is_active': BOOLEAN, 'is_current': BOOLEAN, 'grant_revision': INTEGER}),
         'Interface': object_schema({'interface_type': STRING, 'label': STRING, 'implemented': BOOLEAN}),
         'Attempt': object_schema({'id': INTEGER, 'generation': INTEGER, 'attempt_number': INTEGER, 'state': STRING, 'http_status': {'type': ['integer', 'null']}, 'error_code': STRING, 'started_at': DATE, 'finished_at': DATE}),
-        'ApiCall': object_schema({'id': INTEGER, 'request_id': STRING, 'bot': {'type': ['integer', 'null']}, 'api_key': {'type': ['integer', 'null']}, 'method': STRING, 'path': STRING, 'message_type': STRING, 'replayed': {'type': ['boolean', 'null']}, 'status_code': INTEGER, 'duration_ms': {'type': 'integer'}, 'created_at': DATE}),
+        'ApiCall': object_schema({'id': INTEGER, 'request_id': STRING, 'bot': {'type': ['integer', 'null']}, 'api_key': {'type': ['integer', 'null']}, 'bot_name': STRING, 'username': STRING, 'key_name': STRING, 'method': STRING, 'path': STRING, 'message_type': STRING, 'replayed': {'type': ['boolean', 'null']}, 'status_code': INTEGER, 'duration_ms': {'type': 'integer'}, 'created_at': DATE}),
+        'ChannelStatus': object_schema({'bot': INTEGER, 'name': STRING, 'channel': INTEGER, 'channel_name': STRING, 'provider_name': STRING, 'interface_type': STRING, 'enabled': BOOLEAN, 'worker_lease_live': BOOLEAN, 'session_recorded': BOOLEAN, 'lease_until': DATE, 'last_call_at': DATE, 'last_http_status': {'type': ['integer', 'null']}}),
         'Invitation': object_schema({'id': INTEGER, 'expires_at': DATE, 'used_at': DATE, 'accepted_by': {'type': ['integer', 'null']}, 'created_at': DATE}),
         'Quota': object_schema({'id': INTEGER, 'scope': STRING, 'subject_id': {'type': 'integer'}, 'window_seconds': INTEGER, 'limit': {'type': 'integer'}, 'is_active': BOOLEAN, 'used': {'type': 'integer'}, 'resets_at': {'type': 'integer'}}),
         'OfficialResponse': {'description': 'QQ-owned raw JSON response; no normalization or guarantee of upstream success.', 'type': ['object', 'array', 'string', 'number', 'boolean', 'null'], 'additionalProperties': True},
     }
     responses = {'health': object_schema({'status': STRING}), 'csrf': object_schema({'csrfToken': STRING}),
                  'currentUser': ref('User'), 'login': ref('User'), 'acceptInvitation': ref('User'),
-                 'createBot': ref('Bot'), 'updateBot': ref('Bot'), 'setAdminActive': ref('User'),
+                 'createBot': ref('Bot'), 'updateBot': ref('Bot'), 'setAdminActive': ref('User'), 'createUser': ref('User'),
                  'setGrant': ref('Grant'), 'createKey': ref('IssuedKey'), 'rotateKey': ref('IssuedKey'),
                  'getKey': ref('Key'), 'updateKey': ref('Key'), 'copyKey': object_schema({'token': STRING}),
                  'getProvider': ref('Provider'), 'createProvider': ref('Provider'), 'updateProvider': ref('Provider'),
-                 'setSubscription': object_schema({'id': INTEGER, 'grant_revision': INTEGER}),
+                 'setSubscription': object_schema({'id': INTEGER, 'bot': INTEGER, 'url': STRING, 'grant_revision': INTEGER}),
                  'setQuota': object_schema({'id': INTEGER}), 'createInvitation': object_schema({'id': INTEGER, 'token': STRING, 'expires_at': DATE}),
                  'replayDelivery': object_schema({'id': INTEGER, 'state': STRING, 'attempt_generation': INTEGER, 'warning': STRING}),
                  'backfillConversations': object_schema({'source': STRING, 'created': {'type': 'integer'}, 'upstream_enumeration_supported': BOOLEAN, 'realtime_discovery': BOOLEAN, 'models': array(ref('Conversation'))}),
@@ -200,7 +218,7 @@ def schema():
         responses['list' + name] = object_schema({field: array(ref(model)), 'has_more': BOOLEAN, 'next_before': {'type': ['string', 'null']}})
     responses['relayEvents'] = object_schema({'events': array(object_schema({'cursor': STRING, 'payload': {'type': 'object', 'additionalProperties': True}, 'received_at': DATE})), 'next_cursor': STRING, 'has_more': BOOLEAN})
     responses['relayCapabilities'] = object_schema({'bot_id': INTEGER, 'scopes': SCOPES, 'proxy_enabled': BOOLEAN, 'websocket_enabled': BOOLEAN, 'operations': array(STRING), 'unrestricted_conversations': BOOLEAN, **policy})
-    responses['dashboardOverview'] = object_schema({**{name: {'type': 'integer'} for name in ['window_hours', 'bot_count', 'active_bot_count', 'event_count', 'delivery_count', 'delivered_count', 'pending_count', 'processing_count', 'failed_count', 'cancelled_count']}, 'window_start': DATE, 'generated_at': DATE})
+    responses['dashboardOverview'] = object_schema({**{name: {'type': 'integer'} for name in ['window_hours', 'bot_count', 'active_bot_count', 'gateway_worker_count', 'api_call_count', 'api_success_count', 'api_error_count', 'event_count', 'delivery_count', 'delivered_count', 'pending_count', 'processing_count', 'failed_count', 'cancelled_count']}, 'window_start': DATE, 'generated_at': DATE, 'channels': array(ref('ChannelStatus'))})
     for methods in paths.values():
         for op in methods.values():
             if op['operationId'] in responses:
@@ -213,7 +231,7 @@ def schema():
                 response.setdefault('headers', {})['X-Request-ID'] = {'schema': STRING}
     return {
         'openapi': '3.1.0',
-        'info': {'title': 'QQ Bot Proxy Platform API', 'version': '0.1.0',
+        'info': {'title': 'Botoize Platform API', 'version': '0.2.0',
                  'description': 'Management and relay request/response contracts. Official management routes share the scope registry and preserve QQ response payloads. Webhook signatures and WebSocket protocols are documented separately.'},
         'paths': paths,
         'components': {'schemas': schemas, 'securitySchemes': {

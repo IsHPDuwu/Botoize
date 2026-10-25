@@ -101,3 +101,51 @@ def test_owner_can_activate_and_deactivate_admin_but_not_change_roles(owner):
         authorize(token)
     assert AuditLog.objects.filter(action='user.deactivate', target=admin.username).exists()
     assert grant.is_active
+
+
+def test_owner_user_crud_password_and_owner_boundary(owner):
+    client = APIClient()
+    client.force_authenticate(owner)
+    data = {'username': 'created-admin', 'email': 'admin@example.com', 'new_password': 'created-password-123'}
+    response = client.post('/api/v1/users/', data, format='json')
+    assert response.status_code == 201 and response.json()['role'] == 'Admin'
+    user = User.objects.get(pk=response.json()['id'])
+    assert user.check_password(data['new_password'])
+    assert client.post('/api/v1/users/', data, format='json').status_code == 400
+    assert client.post('/api/v1/users/', {**data, 'role': 'Owner'}, format='json').status_code == 400
+    assert client.post('/api/v1/users/', {**data, 'new_password': 'short'}, format='json').status_code == 400
+    session = APIClient()
+    assert session.login(username=user.username, password=data['new_password'])
+    assert session.get('/api/v1/auth/me/').status_code == 200
+    response = client.patch(f'/api/v1/users/{user.pk}/', {'username': 'renamed-admin', 'email': '', 'new_password': 'reset-password-123'}, format='json')
+    assert response.status_code == 200
+    user.refresh_from_db()
+    assert user.username == 'renamed-admin' and user.email == '' and user.check_password('reset-password-123')
+    assert session.get('/api/v1/auth/me/').status_code == 403
+    assert client.patch(f'/api/v1/users/{owner.pk}/', {'username': 'takeover'}, format='json').status_code == 404
+    assert client.patch(f'/api/v1/users/{user.pk}/', {}, format='json').status_code == 400
+    client.force_authenticate(user)
+    assert client.post('/api/v1/users/', data, format='json').status_code == 403
+    assert client.patch(f'/api/v1/users/{owner.pk}/', {'is_active': False}, format='json').status_code == 403
+
+
+def test_owner_can_revoke_unused_invitation(owner):
+    invitation, token = create_invitation(owner)
+    client = APIClient()
+    client.force_authenticate(owner)
+    assert client.post(f'/api/v1/invitations/{invitation.pk}/revoke/', {}, format='json').status_code == 204
+    with pytest.raises(ValueError, match='invalid or expired'):
+        accept_invitation(token, 'cannot-register', 'long-password-123')
+    invitation, token = create_invitation(owner)
+    user = accept_invitation(token, 'accepted-user', 'long-password-123')
+    assert client.post(f'/api/v1/invitations/{invitation.pk}/revoke/', {}, format='json').status_code == 400
+    client.force_authenticate(user)
+    assert client.post(f'/api/v1/invitations/{invitation.pk}/revoke/', {}, format='json').status_code == 403
+
+
+def test_accept_invitation_rejects_missing_or_invalid_password(owner):
+    _, token = create_invitation(owner)
+    client = APIClient()
+    for password in [None, '', 'short']:
+        result = client.post('/api/v1/invitations/accept/', {'token': token, 'username': 'invalid-password', **({'password': password} if password is not None else {})}, format='json')
+        assert result.status_code == 400

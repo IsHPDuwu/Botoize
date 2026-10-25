@@ -5,7 +5,7 @@ from django.contrib.auth import authenticate, login, logout
 from django.middleware.csrf import get_token
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Count, F
 from django.utils import timezone
 from django.utils.http import parse_header_parameters
@@ -180,7 +180,30 @@ class Users(ManagementView):
         users = User.objects.order_by('username')
         if request.user.role != 'Owner':
             users = users.filter(role='Admin', is_active=True).exclude(pk=request.user.pk)
-        return Response(list(users.values('id', 'username', 'role', 'is_active')))
+        columns = ['id', 'username', 'role', 'is_active']
+        if request.user.role == 'Owner':
+            columns += ['email', 'date_joined', 'last_login']
+        return Response(list(users.values(*columns)))
+
+    @transaction.atomic
+    def post(self, request):
+        owner(request)
+        fields(request.data, ['username', 'email', 'new_password'], ['username', 'new_password'])
+        username = serializers.CharField(max_length=150).run_validation(request.data['username'])
+        import re
+        if not re.fullmatch(r'[\w.@+-]+', username):
+            raise ValidationError({'username': 'Invalid username'})
+        password = serializers.CharField(min_length=12, max_length=256, trim_whitespace=False).run_validation(request.data['new_password'])
+        if User.objects.filter(username=username).exists():
+            raise ValidationError({'username': 'Username already exists'})
+        email = serializers.EmailField(allow_blank=True).run_validation(request.data.get('email', ''))
+        try:
+            with transaction.atomic():
+                user = User.objects.create_user(username=username, password=password, email=email, role=User.Role.ADMIN)
+        except IntegrityError:
+            raise ValidationError({'username': 'Username already exists'}) from None
+        AuditLog.objects.create(actor=request.user.username, action='user.create', target=username)
+        return Response({'id': user.pk, 'username': username, 'role': user.role, 'is_active': True}, status=201)
 
 
 class Quotas(ManagementView):
@@ -240,12 +263,36 @@ class UserLifecycle(ManagementView):
     @transaction.atomic
     def patch(self, request, pk):
         owner(request)
-        fields(request.data, ['is_active', 'password'], ['is_active', 'password'])
+        fields(request.data, ['is_active', 'password', 'username', 'email', 'new_password'])
+        if not {'is_active', 'username', 'email', 'new_password'}.intersection(request.data):
+            raise ValidationError('At least one editable field is required')
         reauthenticate(request)
-        if type(request.data['is_active']) is not bool:
+        if 'is_active' in request.data and type(request.data['is_active']) is not bool:
             raise ValidationError({'is_active': 'Boolean required'})
         user = get_object_or_404(User.objects.select_for_update(), pk=pk, role=User.Role.ADMIN)
-        if user.is_active != request.data['is_active']:
+        changed = False
+        if 'username' in request.data:
+            import re
+            username = serializers.CharField(max_length=150).run_validation(request.data['username'])
+            if not re.fullmatch(r'[\w.@+-]+', username) or User.objects.exclude(pk=pk).filter(username=username).exists():
+                raise ValidationError({'username': 'Invalid or existing username'})
+            user.username = username
+            changed = True
+        if 'email' in request.data:
+            user.email = serializers.EmailField(allow_blank=True).run_validation(request.data['email'])
+            changed = True
+        if 'new_password' in request.data:
+            user.set_password(serializers.CharField(min_length=12, max_length=256, trim_whitespace=False).run_validation(request.data['new_password']))
+            changed = True
+            AuditLog.objects.create(actor=request.user.username, action='user.password_reset', target=user.username)
+        if changed:
+            try:
+                with transaction.atomic():
+                    user.save()
+            except IntegrityError:
+                raise ValidationError({'username': 'Username already exists'}) from None
+            AuditLog.objects.create(actor=request.user.username, action='user.update', target=user.username)
+        if 'is_active' in request.data and user.is_active != request.data['is_active']:
             user.is_active = request.data['is_active']
             user.save(update_fields=['is_active'])
             if not user.is_active:
@@ -260,6 +307,20 @@ class UserLifecycle(ManagementView):
                 target=user.username,
             )
         return Response({'id': user.pk, 'username': user.username, 'role': user.role, 'is_active': user.is_active})
+
+
+class RevokeInvitation(ManagementView):
+    @transaction.atomic
+    def post(self, request, pk):
+        owner(request)
+        fields(request.data, [])
+        invitation = get_object_or_404(Invitation.objects.select_for_update(), pk=pk)
+        if invitation.used_at is not None:
+            raise ValidationError('Invitation has already been accepted')
+        invitation.expires_at = timezone.now()
+        invitation.save(update_fields=['expires_at'])
+        AuditLog.objects.create(actor=request.user.username, action='invitation.revoke', target=str(pk))
+        return Response(status=204)
 
 
 class Invitations(ManagementView):
@@ -300,7 +361,7 @@ class AcceptInvitation(APIView):
         fields(request.data, ['token', 'username', 'password', 'email'], ['token', 'username', 'password'])
         try:
             user = accept_invitation(
-                request.data['token'], request.data['username'], request.data['password'], request.data.get('email', ''),
+                request.data['token'], request.data['username'], request.data.get('password'), request.data.get('email', ''),
             )
         except ValueError as error:
             raise ValidationError(str(error)) from None
@@ -371,21 +432,30 @@ class DashboardOverview(ManagementView):
         outbox = EventOutbox.objects.select_related('event', 'grant', 'grant__user', 'grant__bot')
         if request.user.role != 'Owner':
             user_grants = active_grants(request.user)
-            visible_grants = [grant for grant in user_grants if 'events:read' in grant.scopes]
-            bots = bots.filter(botgrant__user=request.user, botgrant__is_active=True, botgrant__user__is_active=True)
+            bots = bots.filter(pk__in=[grant.bot_id for grant in user_grants])
             outbox = outbox.filter(pk__in=visible_outbox(request.user).values('pk'))
             event_count = Event.objects.filter(pk__in=outbox.values('event_id'), received_at__gte=start, received_at__lt=now).count()
         else:
             event_count = Event.objects.filter(received_at__gte=start, received_at__lt=now).count()
-        deliveries = outbox.filter(event__received_at__gte=start, event__received_at__lt=now)
+        deliveries = outbox.filter(subscription__isnull=False, event__received_at__gte=start, event__received_at__lt=now)
         status_counts = deliveries.values('state').annotate(total=Count('pk'))
         by_state = {row['state']: row['total'] for row in status_counts}
+        calls = ApiCallAudit.objects.filter(created_at__gte=start, created_at__lt=now)
+        if request.user.role != 'Owner':
+            calls = calls.filter(user=request.user)
+        from .channel_status import channel_status
+        channels = channel_status(bots, user=request.user)
         response = Response({
             'window_hours': window_hours,
             'window_start': start,
             'generated_at': now,
             'bot_count': bots.distinct().count(),
             'active_bot_count': bots.filter(is_active=True).distinct().count(),
+            'gateway_worker_count': sum(row['worker_lease_live'] and row['enabled'] for row in channels),
+            'api_call_count': calls.count(),
+            'api_success_count': calls.filter(status_code__gte=200, status_code__lt=300).count(),
+            'api_error_count': calls.filter(status_code__gte=400).count(),
+            'channels': channels,
             'event_count': event_count,
             'delivery_count': deliveries.count(),
             'delivered_count': by_state.get('delivered', 0),
@@ -409,21 +479,27 @@ class Subscriptions(ManagementView):
 
     @transaction.atomic
     def post(self, request):
-        fields(request.data, ['bot', 'url', 'is_active', 'password', 'callback_secret'], ['bot', 'is_active', 'password'])
+        fields(request.data, ['id', 'bot', 'url', 'is_active', 'password', 'callback_secret'], ['bot', 'is_active'])
         reauthenticate(request)
         active = request.data['is_active']
         if type(active) is not bool:
             raise ValidationError({'is_active': 'Boolean required'})
         bot_id = serializers.IntegerField(min_value=1).run_validation(request.data['bot'])
         grant = get_object_or_404(BotGrant.objects.select_for_update(), user=request.user, bot_id=bot_id)
+        subscription_id = request.data.get('id')
+        if subscription_id is not None:
+            subscription_id = serializers.IntegerField(min_value=1).run_validation(subscription_id)
+            get_object_or_404(HttpSubscription, grant=grant, pk=subscription_id)
         if not active:
-            get_object_or_404(HttpSubscription.objects.select_for_update(), grant=grant)
-            disable_subscription(grant.pk, actor=request.user.username)
+            if subscription_id is None:
+                raise ValidationError({'id': 'Subscription ID required'})
+            disable_subscription(grant.pk, actor=request.user.username, subscription_id=subscription_id)
             return Response(status=204)
         try:
             sub = set_subscription(
                 grant.pk, request.data.get('url'), actor=request.user.username,
                 callback_secret=request.data.get('callback_secret'),
+                subscription_id=subscription_id, create=subscription_id is None,
             )
         except ValueError as error:
             raise ValidationError(str(error)) from None
@@ -571,7 +647,7 @@ class ManagementEvents(ManagementView):
         rows = list(events.order_by('-id')[:51])
         page = rows[:50]
         response = Response({
-            'events': [{'id': row.pk, 'bot': row.bot.pk, 'event_id': row.event_id, 'event_type': row.event_type, 'received_at': row.received_at, 'payload': row.payload} for row in page],
+            'events': [{'id': row.pk, 'bot': row.bot.pk, 'bot_name': row.bot.name, 'event_id': row.event_id, 'event_type': row.event_type, 'received_at': row.received_at, 'payload': row.payload} for row in page],
             'next_before': str(page[-1].pk) if page else None, 'has_more': len(rows) > 50,
         })
         response['Cache-Control'] = 'no-store'
@@ -583,7 +659,7 @@ class Deliveries(ManagementView):
         before = request.query_params.get('before', '')
         if before and (not before.isascii() or not before.isdigit() or len(before) > 18):
             raise ValidationError({'before': 'Positive integer required'})
-        rows = EventOutbox.objects.all()
+        rows = EventOutbox.objects.filter(subscription__isnull=False)
         if request.user.role != 'Owner':
             rows = rows.filter(pk__in=visible_outbox(request.user).values('pk'))
         if before:
@@ -591,6 +667,7 @@ class Deliveries(ManagementView):
         page = list(rows.select_related('event__bot', 'grant__user').order_by('-pk')[:51])
         data = [{
             'id': r.pk, 'event_id': r.event.event_id, 'bot': r.event.bot.pk,
+            'bot_name': r.event.bot.name, 'username': r.grant.user.username, 'subscription': r.subscription_id,
             'user': r.grant.user.pk, 'state': r.state, 'attempts': r.attempts,
             'available_at': r.available_at, 'lease_until': r.lease_until,
         } for r in page[:50]]
@@ -636,9 +713,11 @@ class ApiCalls(ManagementView):
         before = request.query_params.get('before', '')
         if before and (not before.isascii() or not before.isdigit() or len(before) > 18):
             raise ValidationError({'before': 'Positive integer required'})
-        rows = ApiCallAudit.objects.all()
+        from .audit_filters import filter_calls
+        rows = ApiCallAudit.objects.select_related('bot', 'user', 'api_key')
         if request.user.role != 'Owner':
             rows = rows.filter(user=request.user)
+        rows = filter_calls(rows, request.query_params)
         if before:
             rows = rows.filter(pk__lt=int(before))
         page = list(rows.order_by('-pk')[:51])
@@ -646,6 +725,9 @@ class ApiCalls(ManagementView):
             'calls': [{
                 'id': row.pk, 'request_id': row.request_id, 'bot': row.bot_id,
                 'api_key': row.api_key_id, 'method': row.method, 'path': row.path,
+                'bot_name': row.bot_name or (row.bot.name if row.bot else ''),
+                'username': row.username or (row.user.username if row.user else ''),
+                'key_name': row.key_name or (row.api_key.name if row.api_key else ''),
                 'message_type': row.message_type, 'replayed': row.replayed,
                 'status_code': row.status_code, 'duration_ms': row.duration_ms,
                 'created_at': row.created_at,
@@ -668,6 +750,7 @@ class RelayEvents(DataPlaneAuditMixin, Capabilities):
         if not limit.isascii() or not limit.isdigit() or len(limit) > 3 or not 1 <= int(limit) <= 100:
             raise ValidationError({'limit': 'Expected integer between 1 and 100'})
         rows = EventOutbox.objects.filter(
+            is_stream=True,
             grant__user=request.user, grant__bot_id=request.auth.bot_id,
             grant__is_active=True, grant_revision=request.auth.grant_revision,
             event__bot_id=request.auth.bot_id, id__gt=int(cursor),
