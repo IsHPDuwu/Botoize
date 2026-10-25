@@ -63,6 +63,13 @@ def get_self(bot, query=''):
 
 MESSAGE_PATH = re.compile(r'v2/(?:users|groups)/[A-Za-z0-9_-]{1,128}/messages')
 MEDIA_PATH = re.compile(r'v2/(?:users|groups)/[A-Za-z0-9_-]{1,128}/(?:files|upload_prepare|upload_part_finish)')
+DELETE_MESSAGE_PATH = re.compile(r'v2/(?:users|groups)/[A-Za-z0-9_-]{1,128}/messages/[A-Za-z0-9_-]{1,256}')
+
+
+def delete_message(bot, path, query=''):
+    if not DELETE_MESSAGE_PATH.fullmatch(path):
+        raise ValueError('Unregistered official delete path')
+    return _request(bot, 'DELETE', path, query)
 
 
 def upload_media(bot, path, body, query=''):

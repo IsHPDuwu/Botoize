@@ -8,7 +8,7 @@ from django.utils import timezone
 from rest_framework.exceptions import AuthenticationFailed, PermissionDenied, ValidationError
 from .models import ApiKey, AuditLog, Bot, BotGrant, OwnerLock, User
 
-SCOPES = frozenset(['events:read', 'messages:send', 'media:upload', 'query:read'])
+SCOPES = frozenset(['events:read', 'messages:send', 'messages:delete', 'media:upload', 'query:read'])
 
 
 def validate_scopes(value):

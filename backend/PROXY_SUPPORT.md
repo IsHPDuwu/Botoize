@@ -7,6 +7,8 @@
 | `GET /qq/users/@me` | `query:read` |
 | `POST /qq/v2/users/{user_openid}/messages` | `messages:send` |
 | `POST /qq/v2/groups/{group_openid}/messages` | `messages:send` |
+| `DELETE /qq/v2/users/{user_openid}/messages/{message_id}` | `messages:delete` |
+| `DELETE /qq/v2/groups/{group_openid}/messages/{message_id}` | `messages:delete` |
 | `POST /qq/v2/users/{user_openid}/files` | `media:upload`；srv_send_msg=true 另需 messages:send |
 | `POST /qq/v2/groups/{group_openid}/files` | `media:upload`；srv_send_msg=true 另需 messages:send |
 | `POST /qq/v2/users/{user_openid}/upload_prepare` | `media:upload` |
@@ -28,6 +30,8 @@ upload_prepare 的返回 URL 有时效，幂等重放不刷新签名；客户端
 保留官方 HTTP 状态、响应正文以及 Content-Type、X-Tps-trace-ID、Retry-After。201/202 不代表最终消息送达；仍须处理官方异步审核语义。禁止自动重定向，不自动重试消息。平台返回 `official_outcome_unknown` 时无法确定发送结果，调用方不得盲目重发。
 
 权限仍受当前账号、Bot、显式 BotGrant、授权版本及 Key 范围限制。Owner 身份不自动扩大数据面权限。
+
+撤回采用独立 `messages:delete`，现有发送 Key 不会自动获得撤回权。请求不得携带正文，保留官方状态、空正文和错误；不自动重试。官方文档规定超过两分钟不可撤回，由官方判断；群管理员 Bot 可能撤回普通群成员消息，因此该权限是整个 Bot 范围的敏感权限，不限于该 Admin 自己通过代理发送的消息。
 
 ## 可选发送幂等扩展
 
@@ -64,12 +68,15 @@ upload_prepare 的返回 URL 有时效，幂等重放不刷新签名；客户端
 不能盲目重发。1400 表示参数错误，1403 为缺权限，1404 为动作不支持，1500 为官方非 2xx。
 官方接受响应也不保证业务消息最终送达。
 
-目前未实现：撤回、频道消息、官方 Gateway 上游 WS、OneBot 事件转换/WS、
+目前未实现：频道消息、官方 Gateway 上游 WS、OneBot 事件转换/WS、
 异步审核跟踪。数据面调用已持久化 request_id、路由模板、状态和耗时，应用已提供按 Key/Admin/Bot 共享的数据库限流；
 下游回调另提供 HMAC 签名、投递历史和受权人工重放。当前官方请求测试使用模拟上游，
 未完成真实官方账号联调；不可据此视为可生产部署。
 
 核对来源：
+- 撤回接口核实日期：2026-10-25。
+- https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_users_user_openid_messages_message_id.delete.html
+- https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_group_openid_messages_message_id.delete.html
 - 媒体接口核实日期：2026-10-25；官方页面标注更新于 2026-10-09。
 - https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_users_user_openid_files.post.html
 - https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_group_openid_files.post.html

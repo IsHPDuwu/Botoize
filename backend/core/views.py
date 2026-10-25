@@ -17,6 +17,7 @@ from rest_framework import serializers
 from .models import User, Bot, BotGrant, ApiKey, ApiCallAudit, AuditLog, DeliveryAttempt, Event, EventOutbox, Invitation
 from .services import authorize, encrypt_secret, issue_key, rotate_key, update_bot, validate_scopes
 from .official import get_self, send_message, upload_media, MEDIA_PATH, MESSAGE_PATH, OfficialCredentialError
+from .official import delete_message, DELETE_MESSAGE_PATH
 from .models import HttpSubscription
 from .models import QuotaPolicy, QuotaUsage
 from .subscriptions import disable_subscription, set_subscription, subscription_is_current
@@ -467,6 +468,8 @@ class Capabilities(APIView):
         operations = ['GET /users/@me'] if 'query:read' in request.effective_scopes else []
         if 'messages:send' in request.effective_scopes:
             operations += ['POST /v2/users/{user_openid}/messages', 'POST /v2/groups/{group_openid}/messages']
+        if 'messages:delete' in request.effective_scopes:
+            operations += ['DELETE /v2/users/{user_openid}/messages/{message_id}', 'DELETE /v2/groups/{group_openid}/messages/{message_id}']
         if 'media:upload' in request.effective_scopes:
             operations += [
                 f'POST /v2/{kind}/{{{identifier}}}/{operation}'
@@ -692,4 +695,21 @@ class Proxy(DataPlaneAuditMixin, Capabilities):
             raise PermissionDenied('Bot mismatch')
         return Response({'code': 'proxy_not_available', 'source': 'platform', 'detail': 'Official proxy and OneBot are not implemented'}, status=501)
 
-    put = patch = delete = denied
+    def delete(self, request, path=''):
+        if not request.path.startswith('/qq/') or not DELETE_MESSAGE_PATH.fullmatch(path):
+            return self.denied(request, path)
+        if 'messages:delete' not in request.effective_scopes:
+            raise PermissionDenied('messages:delete required')
+        if request.body:
+            raise ValidationError('DELETE message requests must not contain a body')
+        try:
+            status, body, headers = delete_message(request.auth.bot, path, request.META.get('QUERY_STRING', ''))
+        except OfficialCredentialError:
+            return Response({'code': 'official_outcome_unknown', 'source': 'platform'}, status=502)
+        response = HttpResponse(body, status=status)
+        for name, value in headers.items():
+            response[name] = value
+        response['Cache-Control'] = 'no-store'
+        return response
+
+    put = patch = denied
