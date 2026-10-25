@@ -289,3 +289,51 @@ def test_owner_bot_creation_and_reauth(setup):
     assert r.status_code == 201
     assert 'never-return-this' not in str(r.json())
     assert decrypt_secret(Bot.objects.get(pk=r.json()['id'])) == 'never-return-this'
+
+
+def test_owner_bot_update_rotation_and_lifecycle(setup):
+    a, b, o, bot, other = setup
+    key, token = issue_key(a, bot, 'rotate-me', ['query:read'])
+    grant = BotGrant.objects.get(user=a, bot=bot)
+    c = client(o)
+    payload = {'password': PASSWORD, 'secret': 'rotated-secret', 'name': 'renamed'}
+    response = c.patch(f'/api/v1/bots/{bot.pk}/', payload, format='json')
+    assert response.status_code == 200
+    assert response.json() == {'id': bot.pk, 'name': 'renamed', 'app_id': bot.app_id, 'is_active': True}
+    assert 'rotated-secret' not in str(response.json())
+    bot.refresh_from_db()
+    grant.refresh_from_db()
+    assert decrypt_secret(bot) == 'rotated-secret'
+    assert grant.revision == 2
+    with pytest.raises(AuthenticationFailed):
+        authorize(token)
+    assert ApiKey.objects.get(pk=key.pk).revoked_at is not None
+
+    _, fresh_token = issue_key(a, bot, 'fresh', ['query:read'])
+    response = c.patch(f'/api/v1/bots/{bot.pk}/', {'password': PASSWORD, 'is_active': False}, format='json')
+    assert response.status_code == 200 and response.json()['is_active'] is False
+    bot.refresh_from_db()
+    grant.refresh_from_db()
+    assert grant.is_active
+    assert grant.revision == 3
+    with pytest.raises(AuthenticationFailed):
+        authorize(fresh_token)
+    assert c.get('/api/v1/bots/').json()[0]['id'] == bot.pk
+    assert c.get('/api/v1/my-grants/').json() == []
+
+    response = c.patch(f'/api/v1/bots/{bot.pk}/', {'password': PASSWORD, 'is_active': True}, format='json')
+    assert response.status_code == 200
+    bot.refresh_from_db()
+    grant.refresh_from_db()
+    assert bot.is_active and grant.is_active and grant.revision == 4
+
+
+def test_bot_lifecycle_owner_only_and_validates_update(setup):
+    a, b, o, bot, other = setup
+    admin = client(a)
+    assert admin.patch(f'/api/v1/bots/{bot.pk}/', {'password': PASSWORD, 'name': 'hacked'}, format='json').status_code == 403
+    owner_client = client(o)
+    assert owner_client.patch(f'/api/v1/bots/{bot.pk}/', {'password': 'wrong', 'name': 'x'}, format='json').status_code == 403
+    assert owner_client.patch(f'/api/v1/bots/{bot.pk}/', {'password': PASSWORD, 'app_id': other.app_id}, format='json').status_code == 400
+    assert owner_client.patch(f'/api/v1/bots/{bot.pk}/', {'password': PASSWORD, 'role': 'Owner'}, format='json').status_code == 400
+    assert owner_client.patch('/api/v1/bots/999999/', {'password': PASSWORD, 'name': 'missing'}, format='json').status_code == 404

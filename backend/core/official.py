@@ -26,7 +26,7 @@ class NoRedirect(HTTPRedirectHandler):
 def access_token(bot):
     # Bind the cache to encrypted credentials, so credential rotation cannot reuse it.
     import hashlib
-    digest = hashlib.sha256(bot.encrypted_secret.encode()).hexdigest()
+    digest = hashlib.sha256(bot.app_id.encode() + b':' + bot.encrypted_secret.encode()).hexdigest()
     cache_key = f'official-token:{bot.pk}:{digest}'
     cipher = Fernet(settings.BOT_ENCRYPTION_KEY.encode())
     cached = cache.get(cache_key)

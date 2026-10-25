@@ -6,7 +6,7 @@ from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
 from rest_framework.exceptions import AuthenticationFailed, PermissionDenied, ValidationError
-from .models import ApiKey, AuditLog, BotGrant, OwnerLock, User
+from .models import ApiKey, AuditLog, Bot, BotGrant, OwnerLock, User
 
 SCOPES = frozenset(['events:read', 'messages:send', 'media:upload', 'query:read'])
 
@@ -63,6 +63,44 @@ def issue_key(user, bot, name, scopes, expires_at=None):
     key = ApiKey.objects.create(user=user, bot=bot, name=name, prefix=token[:12], digest=hashlib.sha256(token.encode()).hexdigest(), scopes=scopes, grant_revision=grant.revision, expires_at=expires_at)
     AuditLog.objects.create(actor=user.username, action='key.create', target=str(key.pk))
     return key, token
+
+
+@transaction.atomic
+def update_bot(bot_id, actor, *, name=None, app_id=None, secret=None, is_active=None):
+    if actor.role != User.Role.OWNER or not actor.is_active:
+        raise PermissionDenied('Owner required')
+    bot = Bot.objects.select_for_update().filter(pk=bot_id).first()
+    if bot is None:
+        raise Bot.DoesNotExist
+    changed = []
+    if name is not None and name != bot.name:
+        bot.name = name
+        changed.append('name')
+    if app_id is not None and app_id != bot.app_id:
+        if Bot.objects.exclude(pk=bot.pk).filter(app_id=app_id).exists():
+            raise ValueError('app_id already exists')
+        bot.app_id = app_id
+        changed.append('app_id')
+    if secret is not None:
+        bot.encrypted_secret = encrypt_secret(secret)
+        changed.append('encrypted_secret')
+    if is_active is not None and is_active != bot.is_active:
+        bot.is_active = is_active
+        changed.append('is_active')
+    if not changed:
+        raise ValueError('At least one Bot field is required')
+    bot.save(update_fields=changed)
+    grants = list(BotGrant.objects.select_for_update().filter(bot=bot))
+    affected_grants = []
+    for grant in grants:
+        if 'encrypted_secret' in changed or 'app_id' in changed or 'is_active' in changed:
+            grant.revision += 1
+            grant.save(update_fields=['revision'])
+        affected_grants.append(grant.pk)
+    if 'encrypted_secret' in changed or 'app_id' in changed:
+        ApiKey.objects.filter(bot=bot, revoked_at__isnull=True).update(revoked_at=timezone.now())
+    AuditLog.objects.create(actor=actor.username, action='bot.update', target=str(bot.pk))
+    return bot, affected_grants
 
 
 def authorize(token, bot_id=None, scope=None):

@@ -15,7 +15,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.exceptions import PermissionDenied, ValidationError, AuthenticationFailed
 from rest_framework import serializers
 from .models import User, Bot, BotGrant, ApiKey, ApiCallAudit, AuditLog, Event, EventOutbox, Invitation
-from .services import authorize, encrypt_secret, issue_key, validate_scopes
+from .services import authorize, encrypt_secret, issue_key, update_bot, validate_scopes
 from .official import get_self, send_message, MESSAGE_PATH, OfficialCredentialError
 from .models import HttpSubscription
 from .subscriptions import disable_subscription, set_subscription, subscription_is_current
@@ -100,6 +100,33 @@ class Bots(APIView):
         bot = Bot.objects.create(name=request.data['name'], app_id=request.data['app_id'], encrypted_secret=encrypt_secret(request.data['secret']))
         AuditLog.objects.create(actor=request.user.username, action='bot.create', target=str(bot.pk))
         return Response(bot_data(bot), status=201)
+
+    def patch(self, request, pk=None):
+        owner(request)
+        if pk is None:
+            raise ValidationError('Bot ID required')
+        fields(request.data, ['name', 'app_id', 'secret', 'is_active', 'password'], ['password'])
+        reauthenticate(request)
+        if len(request.data) == 1:
+            raise ValidationError('At least one Bot field is required')
+        values = {}
+        for field, maximum in [('name', 120), ('app_id', 100), ('secret', 4096)]:
+            if field in request.data:
+                value = request.data[field]
+                if not isinstance(value, str) or not value or len(value) > maximum:
+                    raise ValidationError({field: 'Invalid value'})
+                values[field] = value
+        if 'is_active' in request.data:
+            if type(request.data['is_active']) is not bool:
+                raise ValidationError({'is_active': 'Boolean required'})
+            values['is_active'] = request.data['is_active']
+        try:
+            bot, _ = update_bot(pk, request.user, **values)
+        except Bot.DoesNotExist:
+            return Response({'detail': 'Not found'}, status=404)
+        except ValueError as error:
+            raise ValidationError(str(error)) from None
+        return Response(bot_data(bot))
 
 
 class Users(APIView):

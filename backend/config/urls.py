@@ -7,6 +7,7 @@ urlpatterns = [
     path('webhooks/qq/<int:pk>/', OfficialWebhook.as_view()),
     path('api/v1/auth/<str:action>/', views.Auth.as_view()),
     path('api/v1/bots/', views.Bots.as_view()),
+    path('api/v1/bots/<int:pk>/', views.Bots.as_view()),
     path('api/v1/dashboard/overview/', views.DashboardOverview.as_view()),
     path('api/v1/users/', views.Users.as_view()),
     path('api/v1/invitations/', views.Invitations.as_view()),
