@@ -29,6 +29,7 @@ class RateLimitExceeded(APIException):
 
 
 def _counter(key):
+    original_key = key
     key = hashlib.sha256(key.encode('utf-8')).hexdigest()
     now = timezone.now()
     cutoff = now - timedelta(seconds=WINDOW_SECONDS)
@@ -47,7 +48,7 @@ def _counter(key):
             key=key, window_started_at=row.window_started_at,
         ).update(count=F('count') + 1)
     if not updated:
-        return _counter(key)
+        return _counter(original_key)
     row.refresh_from_db(fields=['count'])
     return row.count
 

@@ -9,12 +9,14 @@ from .models import EventOutbox
 
 
 def valid_snapshot(row):
+    from .conversations import grant_current, event_allowed
     grant = row.grant
     return (
         grant.is_active and grant.user.is_active and grant.bot.is_active
         and row.grant_revision == grant.revision
         and row.event.bot_id == grant.bot_id
         and 'events:read' in grant.scopes
+        and grant_current(grant) and event_allowed(grant, row.event.payload)
     )
 
 

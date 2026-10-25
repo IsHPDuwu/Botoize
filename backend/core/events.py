@@ -23,9 +23,25 @@ def ingest_event(bot, payload):
     )
     if not created:
         return event, False
+    from .conversations import discover, event_allowed, grant_current
+    discover(current, payload)
+    from .onebot_ids import virtual_id
+    data = payload.get('d')
+    if isinstance(data, dict) and event_type in {'C2C_MESSAGE_CREATE', 'GROUP_AT_MESSAGE_CREATE'}:
+        author = data.get('author')
+        if isinstance(author, dict):
+            user = author.get('user_openid') if event_type == 'C2C_MESSAGE_CREATE' else author.get('member_openid')
+            if isinstance(user, str) and 1 <= len(user) <= 256:
+                virtual_id(current, 'user', user)
+        group = data.get('group_openid')
+        if event_type == 'GROUP_AT_MESSAGE_CREATE' and isinstance(group, str) and 1 <= len(group) <= 256:
+            virtual_id(current, 'group', group)
+        message = data.get('id')
+        if isinstance(message, str) and 1 <= len(message) <= 256:
+            virtual_id(current, 'message', message)
     grants = BotGrant.objects.select_for_update().filter(bot=current, is_active=True, user__is_active=True)
     EventOutbox.objects.bulk_create([
         EventOutbox(event=event, grant=grant, grant_revision=grant.revision)
-        for grant in grants if 'events:read' in grant.scopes
+        for grant in grants if 'events:read' in grant.scopes and grant_current(grant) and event_allowed(grant, payload)
     ])
     return event, True

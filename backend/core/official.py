@@ -1,8 +1,10 @@
 """Official credential transport; never accepts a downstream URL."""
 import json
 import re
+from contextlib import contextmanager
+from urllib.parse import urlsplit
 from urllib.error import HTTPError, URLError
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
 from cryptography.fernet import Fernet
 from django.conf import settings
@@ -14,8 +16,47 @@ TOKEN_URL = 'https://api.bot.qq.com/app/getAppAccessToken'
 MAX_RESPONSE_BYTES = 65536
 
 
+def base_url(bot):
+    from .upstreams import validate_base_url
+    return validate_base_url(bot.channel.base_url)
+
+
+@contextmanager
+def open_upstream(request):
+    target = urlsplit(request.full_url)
+    if target.hostname == 'api.bot.qq.com':
+        try:
+            handlers = [NoRedirect()]
+            if settings.QQ_HTTP_PROXY:
+                handlers.append(ProxyHandler({'https': settings.QQ_HTTP_PROXY}))
+            response = build_opener(*handlers).open(request, timeout=10)
+        except HTTPError as error:
+            response = error
+        with response as opened:
+            yield opened
+        return
+    from .delivery import resolve_public, PinnedHTTPSConnection
+    connection = PinnedHTTPSConnection(target.hostname, resolve_public(target.hostname))
+    try:
+        path = target.path or '/'
+        if target.query:
+            path += '?' + target.query
+        connection.request(request.get_method(), path, body=request.data, headers=dict(request.header_items()))
+        response = connection.getresponse()
+        # urllib-compatible response attributes used by this transport.
+        response.code = response.status
+        yield response
+    finally:
+        connection.close()
+
+
 class OfficialCredentialError(Exception):
     """Intentionally contains no upstream response, secret or request body."""
+
+    def __init__(self, message='Official service unavailable', *, status=None, code=None):
+        super().__init__(message)
+        self.status = status if type(status) is int else None
+        self.code = code if type(code) is int else None
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -26,22 +67,24 @@ class NoRedirect(HTTPRedirectHandler):
 def access_token(bot):
     # Bind the cache to encrypted credentials, so credential rotation cannot reuse it.
     import hashlib
-    digest = hashlib.sha256(bot.app_id.encode() + b':' + bot.encrypted_secret.encode()).hexdigest()
+    endpoint = base_url(bot)
+    digest = hashlib.sha256(bot.app_id.encode() + b':' + bot.encrypted_secret.encode() + b':' + endpoint.encode()).hexdigest()
     cache_key = f'official-token:{bot.pk}:{digest}'
     cipher = Fernet(settings.BOT_ENCRYPTION_KEY.encode())
     cached = cache.get(cache_key)
     if cached:
         return cipher.decrypt(cached).decode()
     body = json.dumps({'appId': bot.app_id, 'clientSecret': decrypt_secret(bot)}).encode()
-    request = Request(TOKEN_URL, data=body, headers={'Content-Type': 'application/json'}, method='POST')
+    request = Request(endpoint + '/app/getAppAccessToken', data=body, headers={'Content-Type': 'application/json'}, method='POST')
     try:
-        with build_opener(NoRedirect()).open(request, timeout=10) as response:
+        with open_upstream(request) as response:
             raw = response.read(MAX_RESPONSE_BYTES + 1)
             if response.status != 200 or len(raw) > MAX_RESPONSE_BYTES:
-                raise OfficialCredentialError('Official credential response rejected')
+                raise OfficialCredentialError('Official credential response rejected', status=response.status)
         data = json.loads(raw)
         if not isinstance(data, dict) or data.get('code') not in (None, 0):
-            raise OfficialCredentialError('Official credential request denied')
+            raise OfficialCredentialError('Official credential request denied', status=200,
+                                          code=data.get('code') if isinstance(data, dict) else None)
         token = data.get('access_token')
         ttl = data.get('expires_in')
         if isinstance(ttl, bool) or not isinstance(ttl, (str, int)):
@@ -61,6 +104,10 @@ def get_self(bot, query=''):
     return _request(bot, 'GET', 'users/@me', query)
 
 
+def get_gateway(bot):
+    return _request(bot, 'GET', 'gateway/bot')
+
+
 MESSAGE_PATH = re.compile(r'(?:v2/(?:users|groups)/[A-Za-z0-9_-]{1,128}/messages|(?:channels|dms)/[A-Za-z0-9_-]{1,128}/messages|users/@me/dms)')
 MEDIA_PATH = re.compile(r'v2/(?:users|groups)/[A-Za-z0-9_-]{1,128}/(?:files|upload_prepare|upload_part_finish)')
 DELETE_MESSAGE_PATH = re.compile(r'(?:v2/(?:users|groups)|channels|dms)/[A-Za-z0-9_-]{1,128}/messages/[A-Za-z0-9_-]{1,256}')
@@ -78,26 +125,40 @@ def upload_media(bot, path, body, query=''):
     return _request(bot, 'POST', path, query, body)
 
 
-def send_message(bot, path, body, query=''):
+def send_message(bot, path, body, query='', *, content_type=None):
     if not MESSAGE_PATH.fullmatch(path):
         raise ValueError('Unregistered official path')
+    if content_type is not None:
+        if not re.fullmatch(r'channels/[A-Za-z0-9_-]{1,128}/messages', path):
+            raise ValueError('Multipart is only registered for channel messages')
+        validate_multipart(content_type)
+        return _request(bot, 'POST', path, query, body, content_type=content_type)
     return _request(bot, 'POST', path, query, body)
 
 
-def _request(bot, method, path, query='', body=None):
-    url = 'https://api.bot.qq.com/' + path
+def validate_multipart(content_type):
+    from django.utils.http import parse_header_parameters
+    if (not isinstance(content_type, str) or len(content_type) > 512
+            or not content_type.isascii() or any(ord(c) < 32 or ord(c) == 127 for c in content_type)):
+        raise ValueError('Invalid multipart Content-Type')
+    media_type, parameters = parse_header_parameters(content_type)
+    boundary = parameters.get('boundary', '')
+    if (media_type != 'multipart/form-data'
+            or not re.fullmatch(r"[0-9A-Za-z'()+_,./:=? -]{1,70}", boundary)
+            or boundary.endswith(' ')):
+        raise ValueError('Invalid multipart boundary')
+
+
+def _request(bot, method, path, query='', body=None, *, content_type=None):
+    url = base_url(bot) + '/' + path
     if query:
         url += '?' + query
     headers = {'Authorization': 'QQBot ' + access_token(bot)}
     if body is not None:
-        headers['Content-Type'] = 'application/json; charset=utf-8'
+        headers['Content-Type'] = content_type or 'application/json; charset=utf-8'
     request = Request(url, data=body, headers=headers, method=method)
     try:
-        try:
-            response = build_opener(NoRedirect()).open(request, timeout=10)
-        except HTTPError as error:
-            response = error
-        with response as response:
+        with open_upstream(request) as response:
             raw = response.read(MAX_RESPONSE_BYTES + 1)
             if len(raw) > MAX_RESPONSE_BYTES or 300 <= response.code < 400:
                 raise OfficialCredentialError('Official response rejected')

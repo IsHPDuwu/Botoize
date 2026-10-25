@@ -4,6 +4,7 @@ from django.utils import timezone
 
 from .models import AuditLog, EventOutbox, HttpSubscription, User
 from .subscriptions import subscription_is_current
+from .outbox import valid_snapshot
 
 
 @transaction.atomic
@@ -18,6 +19,7 @@ def replay_delivery(delivery_id, actor):
     subscription = HttpSubscription.objects.filter(grant_id=row.grant_id).first()
     if not (
         row.state in ('failed', 'delivered')
+        and valid_snapshot(row)
         and row.grant.is_active
         and row.grant.user.is_active
         and row.grant.bot.is_active

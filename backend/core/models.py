@@ -23,14 +23,63 @@ class OwnerLock(models.Model):
     revision = models.PositiveBigIntegerField(default=0)
 
 
+class Provider(models.Model):
+    name = models.CharField(max_length=120, unique=True)
+
+
+class Channel(models.Model):
+    provider = models.ForeignKey(Provider, on_delete=models.PROTECT, related_name='channels')
+    name = models.CharField(max_length=120)
+    base_url = models.URLField(max_length=2048, default='https://api.bot.qq.com')
+    interface_type = models.CharField(max_length=40, default='qq_official_websocket')
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['provider', 'name'], name='unique_provider_channel_name')]
+
+
+def default_channel_id():
+    # Historical migration 0014 references this callable. Keep its lookup compatible
+    # with the schema at that point (before Channel.base_url existed).
+    provider, _ = Provider.objects.get_or_create(name='默认服务提供商')
+    existing = Channel.objects.filter(provider=provider, name='QQ 开放平台').values_list('pk', flat=True).first()
+    if existing is not None:
+        return existing
+    return Channel.objects.get_or_create(provider=provider, name='QQ 开放平台')[0].pk
+
+
+def new_bot_channel_id():
+    from uuid import uuid4
+    provider, _ = Provider.objects.get_or_create(name='默认服务提供商')
+    return Channel.objects.create(provider=provider, name='Bot ' + uuid4().hex).pk
+
+
 class Bot(models.Model):
+    channel = models.ForeignKey(Channel, on_delete=models.PROTECT, related_name='bots', default=new_bot_channel_id)
     name = models.CharField(max_length=120)
     app_id = models.CharField(max_length=100, unique=True)
     encrypted_secret = models.TextField()
     is_active = models.BooleanField(default=True)
 
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['channel'], name='one_bot_per_channel')]
+
+
+class Conversation(models.Model):
+    bot = models.ForeignKey(Bot, on_delete=models.CASCADE, related_name='conversations')
+    name = models.CharField(max_length=120, blank=True)
+    is_direct = models.BooleanField()
+    target_id = models.CharField(max_length=256)
+    discovered_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['bot', 'is_direct', 'target_id'], name='unique_bot_conversation')]
+
 
 class BotGrant(models.Model):
+    parent = models.ForeignKey('self', null=True, blank=True, on_delete=models.CASCADE, related_name='delegated_grants')
+    parent_revision = models.PositiveBigIntegerField(null=True, blank=True)
+    all_conversations = models.BooleanField(default=True)
+    conversations = models.ManyToManyField(Conversation, blank=True)
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     bot = models.ForeignKey(Bot, on_delete=models.CASCADE)
     scopes = models.JSONField(default=list)
@@ -41,7 +90,21 @@ class BotGrant(models.Model):
         constraints = [models.UniqueConstraint(fields=['user', 'bot'], name='unique_user_bot')]
 
 
+class GatewaySession(models.Model):
+    """One single-shard Gateway consumer per Bot, fenced by a renewable lease."""
+    bot = models.OneToOneField(Bot, on_delete=models.CASCADE)
+    lease_token = models.UUIDField(null=True, editable=False)
+    lease_until = models.DateTimeField(null=True)
+    credential_digest = models.CharField(max_length=64, blank=True)
+    intents = models.PositiveBigIntegerField(default=0)
+    session_id = models.CharField(max_length=200, blank=True)
+    sequence = models.PositiveBigIntegerField(null=True)
+
+
 class ApiKey(models.Model):
+    all_conversations = models.BooleanField(default=True)
+    conversations = models.ManyToManyField(Conversation, blank=True)
+    token = models.TextField(blank=True)
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     bot = models.ForeignKey(Bot, on_delete=models.CASCADE)
     name = models.CharField(max_length=120)
@@ -162,6 +225,20 @@ class QuotaPolicy(models.Model):
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=['scope', 'subject_id', 'window_seconds'], name='unique_quota_policy')]
+
+
+class OneBotIdMapping(models.Model):
+    bot = models.ForeignKey(Bot, on_delete=models.CASCADE)
+    kind = models.CharField(max_length=16, choices=[('user', 'User'), ('group', 'Group'), ('message', 'Message')])
+    original_id = models.CharField(max_length=256)
+    virtual_id = models.PositiveBigIntegerField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['bot', 'kind', 'original_id'], name='onebot_original_unique'),
+            models.UniqueConstraint(fields=['bot', 'kind', 'virtual_id'], name='onebot_virtual_unique'),
+            models.CheckConstraint(condition=models.Q(virtual_id__gte=1, virtual_id__lte=9007199254740991), name='onebot_safe_integer'),
+        ]
 
 
 class QuotaUsage(models.Model):

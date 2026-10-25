@@ -17,6 +17,18 @@ from .subscriptions import decrypt_callback_secret, set_subscription
 pytestmark = pytest.mark.django_db
 
 
+@pytest.mark.parametrize('change', [{'is_active': False}, {'revision': 2}, {'scopes': []}])
+def test_attempt_history_rechecks_live_grant(change):
+    grant, row = queued()
+    DeliveryAttempt.objects.create(outbox=row, attempt_number=1)
+    client = APIClient()
+    client.force_login(grant.user)
+    url = f'/api/v1/deliveries/{row.pk}/attempts/'
+    assert client.get(url).status_code == 200
+    BotGrant.objects.filter(pk=grant.pk).update(**change)
+    assert client.get(url).status_code == 404
+
+
 def queued(subscribe=True):
     bot = Bot.objects.create(name='push', app_id='push', encrypted_secret='unused')
     user = User.objects.create_user('push')
@@ -171,11 +183,7 @@ def test_failed_delivery_can_be_replayed_with_new_generation():
     assert row.state == 'failed'
     response = APIClient()
     response.force_authenticate(grant.user)
-    replay = response.post(f'/api/v1/deliveries/{row.pk}/replay/', {'password': 'unused'}, format='json')
-    assert replay.status_code == 403
-    grant.user.set_password('replay-password-long')
-    grant.user.save()
-    replay = response.post(f'/api/v1/deliveries/{row.pk}/replay/', {'password': 'replay-password-long'}, format='json')
+    replay = response.post(f'/api/v1/deliveries/{row.pk}/replay/', {}, format='json')
     assert replay.status_code == 202
     assert replay.json()['attempt_generation'] == 2
     assert 'more than once' in replay.json()['warning']

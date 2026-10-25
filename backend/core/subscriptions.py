@@ -44,7 +44,8 @@ def set_subscription(grant_id, url, actor='console', callback_secret=None):
     ):
         raise ValueError('callback_secret must contain 32–256 characters')
     grant = BotGrant.objects.select_for_update().select_related('user', 'bot').get(pk=grant_id)
-    if not (grant.is_active and grant.user.is_active and grant.bot.is_active and 'events:read' in grant.scopes):
+    from .conversations import grant_current
+    if not (grant_current(grant) and 'events:read' in grant.scopes):
         raise ValueError('Active events:read grant required')
     existing = HttpSubscription.objects.filter(grant=grant).first()
     encrypted = (
@@ -74,9 +75,11 @@ def disable_subscription(grant_id, actor='console'):
 
 
 def subscription_is_current(subscription):
+    from .conversations import grant_current
     grant = subscription.grant
     return (
         subscription.is_active and subscription.grant_revision == grant.revision
         and grant.is_active and grant.user.is_active and grant.bot.is_active
         and 'events:read' in grant.scopes
+        and grant_current(grant)
     )

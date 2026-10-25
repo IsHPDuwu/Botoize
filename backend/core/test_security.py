@@ -31,6 +31,14 @@ def client(user):
     return c
 
 
+def test_bot_detail_routes_are_scoped_and_do_not_crash(setup):
+    a, b, o, bot, other = setup
+    assert client(a).get(f'/api/v1/bots/{bot.pk}/').json()['id'] == bot.pk
+    assert client(a).get(f'/api/v1/bots/{other.pk}/').status_code == 404
+    assert client(o).get(f'/api/v1/bots/{other.pk}/').status_code == 200
+    assert client(o).post(f'/api/v1/bots/{bot.pk}/', {}, format='json').status_code == 405
+
+
 def test_admin_isolation(setup):
     a, b, o, bot, other = setup
     c = client(a)
@@ -39,7 +47,7 @@ def test_admin_isolation(setup):
     assert c.get('/api/v1/keys/').json() == []
     assert c.post(f'/api/v1/keys/{key.pk}/revoke/', {'password': PASSWORD}).status_code == 404
     assert c.post(f'/api/v1/owner/keys/{key.pk}/revoke/', {'password': PASSWORD}).status_code == 403
-    assert c.get('/api/v1/grants/').status_code == 403
+    assert c.get('/api/v1/grants/').json() == []
     assert c.post('/api/v1/bots/', {}).status_code == 403
     assert c.post('/api/v1/keys/', {'bot': other.pk, 'name': 'x', 'scopes': [], 'password': PASSWORD}, format='json').status_code == 404
 
@@ -47,7 +55,7 @@ def test_admin_isolation(setup):
 def test_user_directory_is_owner_only_and_read_only(setup):
     a, b, o, bot, other = setup
     assert APIClient().get('/api/v1/users/').status_code == 403
-    assert client(a).get('/api/v1/users/').status_code == 403
+    assert [u['id'] for u in client(a).get('/api/v1/users/').json()] == [b.pk]
     records = client(o).get('/api/v1/users/').json()
     assert {record['id'] for record in records} == {a.pk, b.pk, o.pk}
     assert all(set(record) == {'id', 'username', 'role', 'is_active'} for record in records)
@@ -127,7 +135,7 @@ def test_official_query_preserves_response_and_checks_scope(setup):
     c.credentials(HTTP_AUTHORIZATION='Bearer ' + token)
     with patch('core.views.get_self') as upstream:
         assert c.get('/qq/users/@me').status_code == 403
-        assert c.get('/onebot/users/@me').status_code == 501
+        assert c.get('/onebot/users/@me').status_code == 404
         upstream.assert_not_called()
 
 
@@ -143,7 +151,7 @@ def test_key_single_bot_scopes_and_hash(setup):
     with pytest.raises(PermissionDenied):
         issue_key(a, bot, 'bad', ['media:upload'])
     c = client(a)
-    assert c.patch(f'/api/v1/keys/{k.pk}/', {'bot': other.pk}).status_code == 404
+    assert c.patch(f'/api/v1/keys/{k.pk}/', {'bot': other.pk}).status_code == 400
     c.credentials(HTTP_AUTHORIZATION='Bearer ' + token)
     assert c.get('/relay/v1/capabilities/').json()['scopes'] == ['query:read']
     assert c.get(f'/relay/v1/capabilities/?bot_id={other.pk}').status_code == 403
@@ -315,8 +323,7 @@ def test_owner_bot_creation_and_reauth(setup):
     a, b, o, bot, other = setup
     c = client(o)
     data = {'name': 'new', 'app_id': 'new-app', 'secret': 'never-return-this', 'password': 'wrong'}
-    assert c.post('/api/v1/bots/', data, format='json').status_code == 403
-    data['password'] = PASSWORD
+    data.pop('password')
     r = c.post('/api/v1/bots/', data, format='json')
     assert r.status_code == 201
     assert 'never-return-this' not in str(r.json())
@@ -331,7 +338,7 @@ def test_owner_bot_update_rotation_and_lifecycle(setup):
     payload = {'password': PASSWORD, 'secret': 'rotated-secret', 'name': 'renamed'}
     response = c.patch(f'/api/v1/bots/{bot.pk}/', payload, format='json')
     assert response.status_code == 200
-    assert response.json() == {'id': bot.pk, 'name': 'renamed', 'app_id': bot.app_id, 'is_active': True}
+    assert response.json() == {'id': bot.pk, 'name': 'renamed', 'app_id': bot.app_id, 'is_active': True, 'channel_id': bot.channel_id}
     assert 'rotated-secret' not in str(response.json())
     bot.refresh_from_db()
     grant.refresh_from_db()
@@ -365,7 +372,7 @@ def test_bot_lifecycle_owner_only_and_validates_update(setup):
     admin = client(a)
     assert admin.patch(f'/api/v1/bots/{bot.pk}/', {'password': PASSWORD, 'name': 'hacked'}, format='json').status_code == 403
     owner_client = client(o)
-    assert owner_client.patch(f'/api/v1/bots/{bot.pk}/', {'password': 'wrong', 'name': 'x'}, format='json').status_code == 403
+    assert owner_client.patch(f'/api/v1/bots/{bot.pk}/', {'name': 'x'}, format='json').status_code == 200
     assert owner_client.patch(f'/api/v1/bots/{bot.pk}/', {'password': PASSWORD, 'app_id': other.app_id}, format='json').status_code == 400
     assert owner_client.patch(f'/api/v1/bots/{bot.pk}/', {'password': PASSWORD, 'role': 'Owner'}, format='json').status_code == 400
     assert owner_client.patch('/api/v1/bots/999999/', {'password': PASSWORD, 'name': 'missing'}, format='json').status_code == 404

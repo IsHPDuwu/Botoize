@@ -8,6 +8,7 @@ from django.shortcuts import get_object_or_404
 from django.db import transaction
 from django.db.models import Count, F
 from django.utils import timezone
+from django.utils.http import parse_header_parameters
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.authentication import BaseAuthentication, SessionAuthentication
@@ -18,6 +19,7 @@ from .models import User, Bot, BotGrant, ApiKey, ApiCallAudit, AuditLog, Deliver
 from .services import authorize, encrypt_secret, issue_key, rotate_key, update_bot, validate_scopes
 from .official import get_self, send_message, upload_media, MEDIA_PATH, MESSAGE_PATH, OfficialCredentialError
 from .official import delete_message, DELETE_MESSAGE_PATH
+from .official import validate_multipart
 from .models import HttpSubscription
 from .models import QuotaPolicy, QuotaUsage
 from .subscriptions import disable_subscription, set_subscription, subscription_is_current
@@ -27,9 +29,12 @@ from .replay import replay_delivery
 from .idempotency import SendConflict, complete_send, reserve_send, unknown_send
 from .quotas import consume_quota
 from .throttle import LIMITS, RateLimitExceeded, bearer_throttle, limit_response, request_ip, throttle
+from .conversations import (policy_data, conversation_data, configure_policy, selection,
+                            require_subset, active_grants, grant_current, filter_events, key_grant)
 
 
 def fields(data, allowed, required=()):
+    required = [field for field in required if field != 'password']
     if not isinstance(data, dict) or set(data) - set(allowed) or set(required) - set(data):
         raise ValidationError('Unexpected or missing fields')
 
@@ -40,16 +45,34 @@ def owner(request):
 
 
 def reauthenticate(request):
-    if not request.user.check_password(request.data.get('password', '')):
-        raise PermissionDenied('Password confirmation required')
+    # Management already requires an authenticated session, CSRF and permissions.
+    return
 
 
 def bot_data(bot):
-    return {'id': bot.pk, 'name': bot.name, 'app_id': bot.app_id, 'is_active': bot.is_active}
+    return {'id': bot.pk, 'name': bot.name, 'app_id': bot.app_id, 'is_active': bot.is_active, 'channel_id': bot.channel_id}
 
 
 def key_data(key):
-    return {'id': key.pk, 'bot': key.bot_id, 'name': key.name, 'prefix': key.prefix, 'scopes': key.scopes, 'expires_at': key.expires_at, 'revoked_at': key.revoked_at, 'grant_revision': key.grant_revision}
+    return {'id': key.pk, 'bot': key.bot_id, 'name': key.name, 'prefix': key.prefix, 'scopes': key.scopes, 'expires_at': key.expires_at, 'revoked_at': key.revoked_at, 'grant_revision': key.grant_revision, 'can_copy': bool(key.token), **policy_data(key)}
+
+
+def grant_data(grant):
+    models = grant.bot.conversations.order_by('pk')
+    if not grant.all_conversations:
+        models = models.filter(pk__in=grant.conversations.values('pk'))
+    return {'id': grant.pk, 'user_id': grant.user_id, 'bot_id': grant.bot_id,
+            'bot': bot_data(grant.bot), 'scopes': grant.scopes, 'is_active': grant.is_active,
+            'revision': grant.revision, 'parent_id': grant.parent_id, **policy_data(grant),
+            'models': [conversation_data(row) for row in models]}
+
+
+def visible_outbox(user):
+    rows = EventOutbox.objects.none()
+    for grant in active_grants(user):
+        if 'events:read' in grant.scopes:
+            rows = rows | filter_events(EventOutbox.objects.filter(grant=grant, grant_revision=grant.revision), grant)
+    return rows
 
 
 class ManagementView(APIView):
@@ -83,6 +106,8 @@ class Auth(APIView):
         # DRF normally skips CSRF for anonymous sessions; login must not.
         SessionAuthentication().enforce_csrf(request)
         if action == 'login':
+            if not isinstance(request.data, dict) or 'password' not in request.data:
+                raise ValidationError('Password required')
             if not throttle('login', request_ip(request), limit=LIMITS['login']):
                 return limit_response()
             fields(request.data, ['username', 'password'], ['username', 'password'])
@@ -99,13 +124,17 @@ class Auth(APIView):
 
 
 class Bots(ManagementView):
-    def get(self, request):
+    def get(self, request, pk=None):
         bots = Bot.objects.all()
         if request.user.role != 'Owner':
-            bots = bots.filter(is_active=True, botgrant__user=request.user, botgrant__is_active=True)
+            bots = bots.filter(pk__in=[grant.bot_id for grant in active_grants(request.user)])
+        if pk is not None:
+            return Response(bot_data(get_object_or_404(bots, pk=pk)))
         return Response([bot_data(b) for b in bots])
 
-    def post(self, request):
+    def post(self, request, pk=None):
+        if pk is not None:
+            return Response(status=405)
         owner(request)
         fields(request.data, ['name', 'app_id', 'secret', 'password'], ['name', 'app_id', 'secret', 'password'])
         reauthenticate(request)
@@ -124,7 +153,7 @@ class Bots(ManagementView):
             raise ValidationError('Bot ID required')
         fields(request.data, ['name', 'app_id', 'secret', 'is_active', 'password'], ['password'])
         reauthenticate(request)
-        if len(request.data) == 1:
+        if not set(request.data) - {'password'}:
             raise ValidationError('At least one Bot field is required')
         values = {}
         for field, maximum in [('name', 120), ('app_id', 100), ('secret', 4096)]:
@@ -148,8 +177,10 @@ class Bots(ManagementView):
 
 class Users(ManagementView):
     def get(self, request):
-        owner(request)
-        return Response(list(User.objects.order_by('username').values('id', 'username', 'role', 'is_active')))
+        users = User.objects.order_by('username')
+        if request.user.role != 'Owner':
+            users = users.filter(role='Admin', is_active=True).exclude(pk=request.user.pk)
+        return Response(list(users.values('id', 'username', 'role', 'is_active')))
 
 
 class Quotas(ManagementView):
@@ -278,35 +309,51 @@ class AcceptInvitation(APIView):
 
 class Grants(ManagementView):
     def get(self, request):
-        owner(request)
-        return Response(list(BotGrant.objects.values('id', 'user_id', 'bot_id', 'scopes', 'is_active', 'revision')))
+        grants = BotGrant.objects.select_related('bot')
+        if request.user.role != 'Owner':
+            grants = grants.filter(parent__user=request.user)
+            grants = [grant for grant in grants if grant_current(grant)]
+        return Response([grant_data(grant) for grant in grants])
 
     @transaction.atomic
     def post(self, request):
-        owner(request)
-        fields(request.data, ['user', 'bot', 'scopes', 'is_active', 'password'], ['user', 'bot', 'scopes', 'password'])
+        fields(request.data, ['user', 'bot', 'scopes', 'is_active', 'password', 'all_conversations', 'conversations'], ['user', 'bot', 'scopes'])
         reauthenticate(request)
-        user = get_object_or_404(User, pk=request.data['user'], is_active=True)
-        bot = get_object_or_404(Bot, pk=request.data['bot'])
+        user = get_object_or_404(User, pk=serializers.IntegerField(min_value=1).run_validation(request.data['user']), is_active=True)
+        bot = get_object_or_404(Bot, pk=serializers.IntegerField(min_value=1).run_validation(request.data['bot']))
         scopes = validate_scopes(request.data['scopes'])
         active = request.data.get('is_active', True)
         if not isinstance(active, bool):
             raise ValidationError({'is_active': 'Boolean required'})
         # Lock parent to serialize even the first grant creation.
         User.objects.select_for_update().get(pk=user.pk)
+        parent = None
+        if request.user.role != 'Owner':
+            if user.pk == request.user.pk or user.role == 'Owner':
+                raise PermissionDenied('Cannot modify your own grant or an Owner grant')
+            parent = get_object_or_404(BotGrant.objects.select_for_update(), user=request.user, bot=bot)
+            if not grant_current(parent) or not set(scopes) <= set(parent.scopes):
+                raise PermissionDenied('Cannot delegate permissions you do not hold')
+            existing = BotGrant.objects.filter(user=user, bot=bot).first()
+            if existing and existing.parent_id != parent.pk:
+                raise PermissionDenied('Only the creator of a delegated grant may update it')
         grant, created = BotGrant.objects.select_for_update().get_or_create(user=user, bot=bot)
+        policy = {k: request.data[k] for k in ('all_conversations', 'conversations') if k in request.data}
+        if created and parent and not policy:
+            policy = policy_data(parent)
+        configure_policy(grant, policy, parent)
+        grant.parent, grant.parent_revision = parent, parent.revision if parent else None
         grant.scopes, grant.is_active = scopes, active
         if not created:
             grant.revision += 1
         grant.save()
         AuditLog.objects.create(actor=request.user.username, action='grant.update', target=str(grant.pk))
-        return Response({'id': grant.pk, 'revision': grant.revision, 'is_active': active})
+        return Response(grant_data(grant))
 
 
 class MyGrants(ManagementView):
     def get(self, request):
-        grants = BotGrant.objects.filter(user=request.user, is_active=True, bot__is_active=True).select_related('bot')
-        return Response([{'bot': bot_data(grant.bot), 'scopes': grant.scopes, 'revision': grant.revision} for grant in grants])
+        return Response([grant_data(grant) for grant in active_grants(request.user)])
 
 
 class DashboardOverview(ManagementView):
@@ -323,17 +370,11 @@ class DashboardOverview(ManagementView):
         bots = Bot.objects.all()
         outbox = EventOutbox.objects.select_related('event', 'grant', 'grant__user', 'grant__bot')
         if request.user.role != 'Owner':
-            user_grants = list(BotGrant.objects.filter(
-                user=request.user, is_active=True, user__is_active=True, bot__is_active=True,
-            ))
+            user_grants = active_grants(request.user)
             visible_grants = [grant for grant in user_grants if 'events:read' in grant.scopes]
             bots = bots.filter(botgrant__user=request.user, botgrant__is_active=True, botgrant__user__is_active=True)
-            outbox = outbox.filter(
-                grant_id__in=[grant.pk for grant in visible_grants],
-                grant_revision=F('grant__revision'),
-            )
-            visible_bot_ids = {grant.bot_id for grant in visible_grants}
-            event_count = Event.objects.filter(bot_id__in=visible_bot_ids, received_at__gte=start, received_at__lt=now).count()
+            outbox = outbox.filter(pk__in=visible_outbox(request.user).values('pk'))
+            event_count = Event.objects.filter(pk__in=outbox.values('event_id'), received_at__gte=start, received_at__lt=now).count()
         else:
             event_count = Event.objects.filter(received_at__gte=start, received_at__lt=now).count()
         deliveries = outbox.filter(event__received_at__gte=start, event__received_at__lt=now)
@@ -390,11 +431,15 @@ class Subscriptions(ManagementView):
 
 
 class Keys(ManagementView):
-    def get(self, request):
+    def get(self, request, pk=None):
+        if pk is not None:
+            return Response(key_data(get_object_or_404(ApiKey, pk=pk, user=request.user)))
         return Response([key_data(k) for k in ApiKey.objects.filter(user=request.user)])
 
-    def post(self, request):
-        fields(request.data, ['bot', 'name', 'scopes', 'expires_at', 'password'], ['bot', 'name', 'scopes', 'password'])
+    def post(self, request, pk=None):
+        if pk is not None:
+            return Response(status=405)
+        fields(request.data, ['bot', 'name', 'scopes', 'expires_at', 'password', 'all_conversations', 'conversations'], ['bot', 'name', 'scopes'])
         reauthenticate(request)
         bot = get_object_or_404(Bot, pk=request.data['bot'], is_active=True, botgrant__user=request.user, botgrant__is_active=True)
         scopes = validate_scopes(request.data['scopes'])
@@ -402,8 +447,32 @@ class Keys(ManagementView):
         expiry = serializers.DateTimeField(allow_null=True).run_validation(request.data.get('expires_at'))
         if isinstance(expiry, datetime) and expiry <= timezone.now():
             raise ValidationError({'expires_at': 'Must be in the future'})
-        key, token = issue_key(request.user, bot, name, scopes, expiry)
-        return Response({**key_data(key), 'token': token}, status=201)
+        policy = {k: request.data[k] for k in ('all_conversations', 'conversations') if k in request.data}
+        key, token = issue_key(request.user, bot, name, scopes, expiry, **policy)
+        return Response({**key_data(key), 'token': token}, status=201, headers={'Cache-Control': 'no-store'})
+
+    @transaction.atomic
+    def patch(self, request, pk=None):
+        fields(request.data, ['name', 'scopes', 'expires_at', 'all_conversations', 'conversations'])
+        key = get_object_or_404(ApiKey.objects.select_for_update(), pk=pk, user=request.user, revoked_at__isnull=True)
+        grant = key_grant(key)
+        if key.expires_at and key.expires_at <= timezone.now():
+            raise PermissionDenied('Expired key cannot be edited')
+        if 'name' in request.data:
+            key.name = serializers.CharField(max_length=120).run_validation(request.data['name'])
+        if 'scopes' in request.data:
+            key.scopes = validate_scopes(request.data['scopes'])
+        if not set(key.scopes) <= set(grant.scopes):
+            raise PermissionDenied('Scopes exceed grant')
+        if 'expires_at' in request.data:
+            expiry = serializers.DateTimeField(allow_null=True).run_validation(request.data['expires_at'])
+            if expiry and expiry <= timezone.now():
+                raise ValidationError('Expiry must be in the future')
+            key.expires_at = expiry
+        configure_policy(key, request.data, grant)
+        key.save()
+        AuditLog.objects.create(actor=request.user.username, action='key.update', target=str(key.pk))
+        return Response(key_data(key), headers={'Cache-Control': 'no-store'})
 
 
 class RevokeKey(ManagementView):
@@ -424,9 +493,10 @@ class RevokeKey(ManagementView):
 
 class RotateKey(ManagementView):
     def post(self, request, pk):
-        fields(request.data, ['name', 'scopes', 'expires_at', 'password'], ['password'])
+        fields(request.data, ['name', 'scopes', 'expires_at', 'password', 'all_conversations', 'conversations'])
         reauthenticate(request)
         values = {}
+        values.update({k: request.data[k] for k in ('all_conversations', 'conversations') if k in request.data})
         if 'name' in request.data:
             values['name'] = serializers.CharField(max_length=120).run_validation(request.data['name'])
         if 'scopes' in request.data:
@@ -442,7 +512,7 @@ class RotateKey(ManagementView):
             return Response({'detail': 'Not found'}, status=404)
         except PermissionDenied:
             raise
-        return Response({**key_data(key), 'token': token, 'rotated_key': old_key.pk}, status=201)
+        return Response({**key_data(key), 'token': token, 'rotated_key': old_key.pk}, status=201, headers={'Cache-Control': 'no-store'})
 
 
 class Bearer(BaseAuthentication):
@@ -465,20 +535,27 @@ class Capabilities(APIView):
     authentication_classes = [Bearer]
 
     def get(self, request):
+        from .conversations import unrestricted
+        from .official_routes import OPERATIONS
+        broad = unrestricted(request.auth)
         operations = ['GET /users/@me'] if 'query:read' in request.effective_scopes else []
         if 'messages:send' in request.effective_scopes:
             operations += ['POST /v2/users/{user_openid}/messages', 'POST /v2/groups/{group_openid}/messages']
-            operations += ['POST /channels/{channel_id}/messages', 'POST /dms/{guild_id}/messages', 'POST /users/@me/dms']
+            if broad:
+                operations += ['POST /channels/{channel_id}/messages', 'POST /dms/{guild_id}/messages', 'POST /users/@me/dms']
         if 'messages:delete' in request.effective_scopes:
             operations += ['DELETE /v2/users/{user_openid}/messages/{message_id}', 'DELETE /v2/groups/{group_openid}/messages/{message_id}']
-            operations += ['DELETE /channels/{channel_id}/messages/{message_id}', 'DELETE /dms/{guild_id}/messages/{message_id}']
+            if broad:
+                operations += ['DELETE /channels/{channel_id}/messages/{message_id}', 'DELETE /dms/{guild_id}/messages/{message_id}']
         if 'media:upload' in request.effective_scopes:
             operations += [
                 f'POST /v2/{kind}/{{{identifier}}}/{operation}'
                 for kind, identifier in [('users', 'user_openid'), ('groups', 'group_openid')]
                 for operation in ('files', 'upload_prepare', 'upload_part_finish')
             ]
-        return Response({'bot_id': request.auth.bot_id, 'scopes': request.effective_scopes, 'proxy_enabled': bool(operations), 'websocket_enabled': 'events:read' in request.effective_scopes, 'operations': operations})
+        if broad:
+            operations += [f'{method} /{path}' for method, path, scope in OPERATIONS if scope in request.effective_scopes]
+        return Response({'bot_id': request.auth.bot_id, 'scopes': request.effective_scopes, 'proxy_enabled': bool(operations), 'websocket_enabled': 'events:read' in request.effective_scopes, 'operations': operations, **policy_data(request.auth), 'unrestricted_conversations': broad}, headers={'Cache-Control': 'no-store'})
 
 
 class ManagementEvents(ManagementView):
@@ -488,13 +565,7 @@ class ManagementEvents(ManagementView):
             raise ValidationError({'before': 'Positive integer required'})
         events = Event.objects.select_related('bot')
         if request.user.role != 'Owner':
-            snapshots = EventOutbox.objects.filter(
-                grant__user=request.user, grant__is_active=True,
-                grant__bot__is_active=True, grant_revision=F('grant__revision'),
-            ).select_related('grant')
-            # JSON containment is not supported by the SQLite development DB.
-            allowed = [row.pk for row in BotGrant.objects.filter(user=request.user, is_active=True) if 'events:read' in row.scopes]
-            events = events.filter(pk__in=snapshots.filter(grant_id__in=allowed).values('event_id'))
+            events = events.filter(pk__in=visible_outbox(request.user).values('event_id'))
         if before:
             events = events.filter(pk__lt=int(before))
         rows = list(events.order_by('-id')[:51])
@@ -514,8 +585,7 @@ class Deliveries(ManagementView):
             raise ValidationError({'before': 'Positive integer required'})
         rows = EventOutbox.objects.all()
         if request.user.role != 'Owner':
-            grants = [g.pk for g in BotGrant.objects.filter(user=request.user, is_active=True, bot__is_active=True) if 'events:read' in g.scopes]
-            rows = rows.filter(grant_id__in=grants, grant_revision=F('grant__revision'))
+            rows = rows.filter(pk__in=visible_outbox(request.user).values('pk'))
         if before:
             rows = rows.filter(pk__lt=int(before))
         page = list(rows.select_related('event__bot', 'grant__user').order_by('-pk')[:51])
@@ -534,6 +604,8 @@ class DeliveryAttempts(ManagementView):
         rows = DeliveryAttempt.objects.filter(outbox_id=pk, outbox__grant__user=request.user)
         if request.user.role == 'Owner':
             rows = DeliveryAttempt.objects.filter(outbox_id=pk)
+        else:
+            rows = rows.filter(outbox_id__in=visible_outbox(request.user).values('pk'))
         if not rows.exists():
             return Response({'detail': 'Not found'}, status=404)
         return Response([{
@@ -594,11 +666,12 @@ class RelayEvents(DataPlaneAuditMixin, Capabilities):
             raise ValidationError({'after': 'Non-negative integer cursor required'})
         if not limit.isascii() or not limit.isdigit() or len(limit) > 3 or not 1 <= int(limit) <= 100:
             raise ValidationError({'limit': 'Expected integer between 1 and 100'})
-        rows = list(EventOutbox.objects.filter(
+        rows = EventOutbox.objects.filter(
             grant__user=request.user, grant__bot_id=request.auth.bot_id,
             grant__is_active=True, grant_revision=request.auth.grant_revision,
             event__bot_id=request.auth.bot_id, id__gt=int(cursor),
-        ).select_related('event').order_by('id')[:int(limit) + 1])
+        ).select_related('event').order_by('id')
+        rows = list(filter_events(filter_events(rows, key_grant(request.auth)), request.auth)[:int(limit) + 1])
         page = rows[:int(limit)]
         response = Response({
             'events': [{'cursor': str(row.pk), 'payload': row.event.payload, 'received_at': row.event.received_at} for row in page],
@@ -610,19 +683,42 @@ class RelayEvents(DataPlaneAuditMixin, Capabilities):
 
 
 class Proxy(DataPlaneAuditMixin, Capabilities):
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        import re
+        from .conversations import check_conversation, unrestricted
+        from .models import BotGrant
+        path = kwargs.get('path', '')
+        match = re.match(r'^v2/(users|groups)/([A-Za-z0-9_-]{1,128})(?:/|$)', path)
+        if request.path.startswith('/qq/') and match:
+            check_conversation(request.auth, match[1] == 'users', match[2])
+        elif request.path.startswith('/qq/') and path != 'users/@me':
+            if not unrestricted(request.auth):
+                raise PermissionDenied('This operation has no supported conversation target')
+
+    def onebot_http(self, request, path):
+        from .onebot import invoke
+        if not path.rstrip('/'):
+            return Response(status=404)
+        if request.method == 'GET':
+            params = request.query_params.dict()
+        else:
+            if len(request.body) > 1048576:
+                return Response(status=413)
+            if parse_header_parameters(request.content_type)[0] not in {'application/json', 'application/x-www-form-urlencoded'}:
+                return Response(status=406)
+            if not isinstance(request.data, dict):
+                return Response(status=400)
+            params = request.data.dict() if hasattr(request.data, 'dict') else request.data
+        response = invoke(request.auth.bot, request.effective_scopes, path.rstrip('/'), params, key=request.auth)
+        if response.data['retcode'] == 1404:
+            response.status_code = 404
+        response['Cache-Control'] = 'no-store'
+        return response
+
     def post(self, request, path=''):
         if request.path.startswith('/onebot/'):
-            from .onebot import invoke
-            if len(request.body) > 1048576:
-                return Response({'detail': 'Body too large'}, status=413)
-            if not isinstance(request.data, dict):
-                raise ValidationError('JSON object required')
-            if path == '':
-                fields(request.data, ['action', 'params', 'echo'], ['action'])
-                action, params = request.data['action'], request.data.get('params', {})
-            else:
-                action, params = path.rstrip('/'), request.data
-            return invoke(request.auth.bot, request.effective_scopes, action, params, request.data.get('echo') if path == '' else None)
+            return self.onebot_http(request, path)
         media_upload = bool(MEDIA_PATH.fullmatch(path))
         if not request.path.startswith('/qq/') or not (MESSAGE_PATH.fullmatch(path) or media_upload):
             return self.denied(request, path)
@@ -632,11 +728,19 @@ class Proxy(DataPlaneAuditMixin, Capabilities):
         raw = request.body
         if len(raw) > 1048576:
             return Response({'code': 'body_too_large', 'source': 'platform'}, status=413)
-        if request.content_type != 'application/json':
+        media_type = parse_header_parameters(request.content_type)[0]
+        multipart = media_type == 'multipart/form-data' and path.startswith('channels/')
+        content_type = request.META.get('CONTENT_TYPE') if multipart else None
+        if multipart:
+            try:
+                validate_multipart(content_type)
+            except ValueError as error:
+                raise ValidationError(str(error)) from None
+        elif media_type != 'application/json':
             return Response({'code': 'json_required', 'source': 'platform'}, status=415)
-        if not isinstance(request.data, dict):
+        if not multipart and not isinstance(request.data, dict):
             raise ValidationError('JSON object required')
-        if 'bot_id' in request.data and str(request.data['bot_id']) != str(request.auth.bot_id):
+        if not multipart and 'bot_id' in request.data and str(request.data['bot_id']) != str(request.auth.bot_id):
             raise PermissionDenied('Bot mismatch')
         if media_upload and path.endswith('/files'):
             # Official uploads can also send messages; never allow that side effect
@@ -652,6 +756,7 @@ class Proxy(DataPlaneAuditMixin, Capabilities):
                 reservation, cached = reserve_send(
                     request.auth, request.headers['Idempotency-Key'], path,
                     request.META.get('QUERY_STRING', ''), raw,
+                    content_type=content_type,
                 )
             except ValueError as error:
                 raise ValidationError(str(error)) from None
@@ -659,8 +764,10 @@ class Proxy(DataPlaneAuditMixin, Capabilities):
                 return Response({'code': error.code, 'source': 'platform'}, status=409)
         try:
             transport = upload_media if media_upload else send_message
+            encoding = {'content_type': content_type} if multipart else {}
             result = cached if cached is not None else transport(
                 request.auth.bot, path, raw, request.META.get('QUERY_STRING', ''),
+                **encoding,
             )
             if reservation is not None and cached is None:
                 complete_send(reservation, result)
@@ -678,6 +785,8 @@ class Proxy(DataPlaneAuditMixin, Capabilities):
         return response
 
     def get(self, request, path=''):
+        if request.path.startswith('/onebot/'):
+            return self.onebot_http(request, path)
         if request.path.startswith('/qq/') and path == 'users/@me':
             if 'query:read' not in request.effective_scopes:
                 raise PermissionDenied('query:read required')
@@ -693,9 +802,37 @@ class Proxy(DataPlaneAuditMixin, Capabilities):
         return self.denied(request, path)
 
     def denied(self, request, path=''):
+        from .official_routes import required_scope
+        from .official import _request
+        scope = required_scope(request.method, path) if request.path.startswith('/qq/') else None
+        if scope:
+            if scope not in request.effective_scopes:
+                raise PermissionDenied(scope + ' required')
+            body = None
+            if request.body:
+                if request.method == 'GET' or len(request.body) > 1048576:
+                    raise ValidationError('Invalid request body')
+                if request.content_type != 'application/json' or not isinstance(request.data, dict):
+                    raise ValidationError('JSON object required')
+                body = request.body
+            try:
+                status, raw, headers = _request(request.auth.bot, request.method, path, request.META.get('QUERY_STRING', ''), body)
+            except OfficialCredentialError:
+                return Response({'code': 'official_outcome_unknown', 'source': 'platform'}, status=502)
+            response = HttpResponse(raw, status=status)
+            for name, value in headers.items():
+                response[name] = value
+            response['Cache-Control'] = 'no-store'
+            return response
         if isinstance(request.data, dict) and 'bot_id' in request.data and str(request.data['bot_id']) != str(request.auth.bot_id):
             raise PermissionDenied('Bot mismatch')
-        return Response({'code': 'proxy_not_available', 'source': 'platform', 'detail': 'Official proxy and OneBot are not implemented'}, status=501)
+        return Response({'code': 'proxy_not_available', 'source': 'platform', 'detail': 'This operation is not supported'}, status=501)
+
+    def patch(self, request, path=''):
+        return self.denied(request, path)
+
+    def put(self, request, path=''):
+        return self.denied(request, path)
 
     def delete(self, request, path=''):
         if not request.path.startswith('/qq/') or not DELETE_MESSAGE_PATH.fullmatch(path):

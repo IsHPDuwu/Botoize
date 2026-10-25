@@ -18,11 +18,14 @@ class SendConflict(Exception):
         super().__init__(code)
 
 
-def reserve_send(key, token, path, query, body):
+def reserve_send(key, token, path, query, body, *, content_type=None):
     if not isinstance(token, str) or not re.fullmatch(r'[A-Za-z0-9._:-]{1,128}', token):
         raise ValueError('Idempotency-Key must contain 1–128 ASCII identifier characters')
+    fingerprint = [path, query, base64.b64encode(body).decode('ascii')]
+    if content_type is not None:
+        fingerprint.append(content_type)
     digest = hashlib.sha256(json.dumps(
-        [path, query, base64.b64encode(body).decode('ascii')], separators=(',', ':'),
+        fingerprint, separators=(',', ':'),
     ).encode()).hexdigest()
     row, created = IdempotentSend.objects.get_or_create(
         user_id=key.user_id, bot_id=key.bot_id,

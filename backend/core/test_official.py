@@ -18,7 +18,7 @@ def clean_cache():
 
 
 def bot():
-    return SimpleNamespace(pk=1, app_id='123', encrypted_secret=encrypt_secret('private-secret'))
+    return SimpleNamespace(pk=1, app_id='123', encrypted_secret=encrypt_secret('private-secret'), channel=SimpleNamespace(base_url='https://api.bot.qq.com'))
 
 
 def transport(data):

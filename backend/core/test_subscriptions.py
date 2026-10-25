@@ -100,7 +100,7 @@ def test_management_subscription_isolation(grant):
     assert client.post('/api/v1/subscriptions/', data, format='json').status_code == 404
     client.force_authenticate(grant.user)
     data['password'] = 'wrong'
-    assert client.post('/api/v1/subscriptions/', data, format='json').status_code == 403
+    assert client.post('/api/v1/subscriptions/', data, format='json').status_code == 201
     data['password'] = 'test-password-long'
     data['is_active'] = False
     assert client.post('/api/v1/subscriptions/', data, format='json').status_code == 204

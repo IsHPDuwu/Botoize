@@ -8,7 +8,9 @@ from django.utils import timezone
 from rest_framework.exceptions import AuthenticationFailed, PermissionDenied, ValidationError
 from .models import ApiKey, AuditLog, Bot, BotGrant, OwnerLock, User
 
-SCOPES = frozenset(['events:read', 'messages:send', 'messages:delete', 'media:upload', 'query:read'])
+from .official_routes import ROUTES
+
+SCOPES = frozenset(['events:read', 'messages:send', 'messages:delete', 'media:upload', 'query:read']) | frozenset(scope for _, _, scope in ROUTES)
 
 
 def validate_scopes(value):
@@ -55,18 +57,26 @@ def owner_change(username, action, password=None):
 
 
 @transaction.atomic
-def issue_key(user, bot, name, scopes, expires_at=None):
+def issue_key(user, bot, name, scopes, expires_at=None, **policy):
+    from .conversations import grant_current, selection, require_subset
     grant = BotGrant.objects.select_for_update().filter(user=user, bot=bot, is_active=True).first()
-    if not user.is_active or not bot.is_active or not grant or not set(scopes) <= set(grant.scopes):
+    if not user.is_active or not bot.is_active or not grant or not grant_current(grant) or not set(scopes) <= set(grant.scopes):
         raise PermissionDenied('No matching BotGrant/scopes')
+    all_models, ids = selection(bot.pk, policy, default=grant)
+    require_subset(all_models, ids, grant)
     token = 'qqp_' + secrets.token_urlsafe(48)
     key = ApiKey.objects.create(user=user, bot=bot, name=name, prefix=token[:12], digest=hashlib.sha256(token.encode()).hexdigest(), scopes=scopes, grant_revision=grant.revision, expires_at=expires_at)
+    key.token = token
+    key.all_conversations = all_models
+    key.save(update_fields=['token', 'all_conversations'])
+    key.conversations.set(ids)
     AuditLog.objects.create(actor=user.username, action='key.create', target=str(key.pk))
     return key, token
 
 
 @transaction.atomic
-def rotate_key(user, key_id, name=None, scopes=None, expires_at=None):
+def rotate_key(user, key_id, name=None, scopes=None, **values):
+    from .conversations import policy_data
     old_key = ApiKey.objects.select_for_update().select_related('bot').filter(
         pk=key_id, user=user, revoked_at__isnull=True,
     ).first()
@@ -76,7 +86,9 @@ def rotate_key(user, key_id, name=None, scopes=None, expires_at=None):
         name = old_key.name
     if scopes is None:
         scopes = old_key.scopes
-    new_key, token = issue_key(user, old_key.bot, name, scopes, expires_at)
+    policy = policy_data(old_key)
+    policy.update({k: v for k, v in values.items() if k in ('all_conversations', 'conversations')})
+    new_key, token = issue_key(user, old_key.bot, name, scopes, values.get('expires_at', old_key.expires_at), **policy)
     old_key.revoked_at = timezone.now()
     old_key.save(update_fields=['revoked_at'])
     AuditLog.objects.create(actor=user.username, action='key.rotate', target=str(old_key.pk))
@@ -106,7 +118,7 @@ def update_bot(bot_id, actor, *, name=None, app_id=None, secret=None, is_active=
         bot.is_active = is_active
         changed.append('is_active')
     if not changed:
-        raise ValueError('At least one Bot field is required')
+        return bot, []
     bot.save(update_fields=changed)
     grants = list(BotGrant.objects.select_for_update().filter(bot=bot))
     affected_grants = []
@@ -127,6 +139,9 @@ def authorize(token, bot_id=None, scope=None):
         raise AuthenticationFailed('Invalid or expired key')
     grant = BotGrant.objects.filter(user=key.user, bot=key.bot, is_active=True, revision=key.grant_revision).first()
     if not grant:
+        raise PermissionDenied('Grant no longer valid')
+    from .conversations import grant_current
+    if not grant_current(grant):
         raise PermissionDenied('Grant no longer valid')
     if bot_id is not None and str(key.bot_id) != str(bot_id):
         raise PermissionDenied('Bot mismatch')
