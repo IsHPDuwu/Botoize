@@ -66,7 +66,13 @@ def identity(bot):
     if onebot_version(bot):
         from .onebot_upstream import identity as upstream_identity
         return upstream_identity(bot)
-    data = official_json(get_self(bot))
+    response = get_self(bot)
+    try:
+        data = official_json(response)
+    except (OneBotError, ValueError, TypeError):
+        from .official import response_code
+        raise OfficialCredentialError('Official identity response rejected', status=response[0],
+            code=response_code(response[1]), stage='identity', reason='upstream_rejected') from None
     own_id = identifier(data.get('id'))
     if bot.channel.onebot_self_id != own_id:
         from .models import Channel

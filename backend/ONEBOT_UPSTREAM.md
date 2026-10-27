@@ -51,6 +51,8 @@ Bot ID 在当前数据库仍全局唯一，同一 Bot ID 不能重复建 Channel
 
 对应管理接口为 `POST /api/v1/channels/CHANNEL_ID/identity/`，空 JSON 正文，要求 Owner Session + CSRF；返回 `onebot11` / `onebot12`，不返回凭据。查询失败时保留旧 ID，可检查凭据、网络与 QQ IP 白名单后重试。客户端也能用该 Channel 的 Key 调用 OB11 `get_login_info` / OB12 `get_self_info` 获取身份。
 
+失败响应包含固定 `error` 分类；官机失败时可附 `stage`（`token` / `identity`）、`upstream_http_status` 与数字 `upstream_code`，不返回上游正文或异常文本。服务器沿用 `HTTPS_PROXY=http://127.0.0.1:7890` 时，必须在服务器自身运行该代理；QQ 白名单应匹配实际出口 IP。迁移数据库须保留 `BOT_ENCRYPTION_KEY`，否则既有加密凭据无法解密。
+
 二选一，也可同时启用（相同事件会去重）：
 
 1. **正向 WS worker**：在 backend 运行：

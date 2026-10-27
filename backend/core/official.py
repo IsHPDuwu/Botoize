@@ -53,10 +53,36 @@ def open_upstream(request):
 class OfficialCredentialError(Exception):
     """Intentionally contains no upstream response, secret or request body."""
 
-    def __init__(self, message='Official service unavailable', *, status=None, code=None):
+    def __init__(self, message='Official service unavailable', *, status=None, code=None, stage=None, reason=None):
         super().__init__(message)
         self.status = status if type(status) is int else None
         self.code = code if type(code) is int else None
+        self.stage = stage
+        self.reason = reason
+
+
+def transport_reason(error):
+    import socket
+    import ssl
+    reason = error.reason if isinstance(error, URLError) else error
+    if isinstance(reason, (TimeoutError, socket.timeout)):
+        return 'timeout'
+    if isinstance(reason, socket.gaierror):
+        return 'dns'
+    if isinstance(reason, ssl.SSLError):
+        return 'tls'
+    if isinstance(reason, ConnectionRefusedError):
+        return 'connection_refused'
+    return 'network'
+
+
+def response_code(raw):
+    try:
+        data = json.loads(raw)
+        value = data.get('code', data.get('errcode')) if isinstance(data, dict) else None
+        return value if type(value) is int and abs(value) < 2**63 else None
+    except (ValueError, TypeError, RecursionError):
+        return None
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -80,11 +106,12 @@ def access_token(bot):
         with open_upstream(request) as response:
             raw = response.read(MAX_RESPONSE_BYTES + 1)
             if response.status != 200 or len(raw) > MAX_RESPONSE_BYTES:
-                raise OfficialCredentialError('Official credential response rejected', status=response.status)
+                raise OfficialCredentialError('Official credential response rejected', status=response.status,
+                    code=response_code(raw) if len(raw) <= MAX_RESPONSE_BYTES else None, stage='token', reason='upstream_rejected')
         data = json.loads(raw)
         if not isinstance(data, dict) or data.get('code') not in (None, 0):
             raise OfficialCredentialError('Official credential request denied', status=200,
-                                          code=data.get('code') if isinstance(data, dict) else None)
+                                          code=data.get('code') if isinstance(data, dict) else None, stage='token', reason='upstream_rejected')
         token = data.get('access_token')
         ttl = data.get('expires_in')
         if isinstance(ttl, bool) or not isinstance(ttl, (str, int)):
@@ -92,8 +119,10 @@ def access_token(bot):
         ttl = int(ttl)
         if not isinstance(token, str) or not token or len(token) > 8192 or not token.isascii() or any(char.isspace() or ord(char) < 33 or ord(char) == 127 for char in token) or not 0 < ttl <= 7200:
             raise ValueError('Invalid credential')
-    except (HTTPError, URLError, OSError, ValueError, TypeError):
-        raise OfficialCredentialError('Official credential service unavailable') from None
+    except (HTTPError, URLError, OSError) as error:
+        raise OfficialCredentialError('Official credential service unavailable', stage='token', reason=transport_reason(error)) from None
+    except (ValueError, TypeError):
+        raise OfficialCredentialError('Official credential service unavailable', stage='token', reason='invalid_response') from None
     if ttl > 60:
         cache.set(cache_key, cipher.encrypt(token.encode()), timeout=ttl - 60)
     return token
@@ -185,8 +214,10 @@ def _request(bot, method, path, query='', body=None, *, content_type=None):
         with open_upstream(request) as response:
             raw = response.read(MAX_RESPONSE_BYTES + 1)
             if len(raw) > MAX_RESPONSE_BYTES or 300 <= response.code < 400:
-                raise OfficialCredentialError('Official response rejected')
+                raise OfficialCredentialError('Official response rejected', status=response.code, stage='identity' if path == 'users/@me' else 'api', reason='invalid_response')
             headers = {name: response.headers[name] for name in ['Content-Type', 'X-Tps-trace-ID', 'Retry-After'] if name in response.headers}
             return response.code, raw, headers
-    except (URLError, OSError, ValueError):
-        raise OfficialCredentialError('Official query unavailable') from None
+    except (URLError, OSError) as error:
+        raise OfficialCredentialError('Official query unavailable', stage='identity' if path == 'users/@me' else 'api', reason=transport_reason(error)) from None
+    except ValueError:
+        raise OfficialCredentialError('Official query unavailable', stage='identity' if path == 'users/@me' else 'api', reason='invalid_response') from None

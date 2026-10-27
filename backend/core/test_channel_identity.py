@@ -50,3 +50,39 @@ def test_identity_failure_is_sanitized_and_keeps_saved_identity(setup):
     assert response.status_code == 502 and b'secret-token' not in response.content
     bot.channel.refresh_from_db()
     assert bot.channel.onebot_self_id == 'saved'
+
+
+@pytest.mark.parametrize('status,body', [(401, b'{"code":11244,"message":"secret-body"}'),
+                                         (200, b'{"code":11244,"message":"secret-body"}')])
+def test_official_identity_failure_reports_only_status_and_numeric_code(setup, status, body, caplog):
+    _, _, client, path = setup
+    with patch('core.onebot.get_self', return_value=(status, body, {})):
+        response = client.post(path, {}, format='json')
+    assert response.status_code == 502
+    assert response.json()['stage'] == 'identity'
+    assert response.json()['upstream_http_status'] == status
+    assert response.json()['upstream_code'] == 11244
+    assert b'secret-body' not in response.content and 'secret-body' not in caplog.text
+
+
+def test_credential_decryption_and_network_errors_have_actionable_diagnostics(setup):
+    from cryptography.fernet import InvalidToken
+    from .official import OfficialCredentialError
+    _, _, client, path = setup
+    for error, expected in [(InvalidToken(), 'credential_decryption_failed'),
+            (OfficialCredentialError(stage='token', reason='connection_refused'), 'official_token_connection_refused')]:
+        with patch('core.channel_identity.identity', side_effect=error):
+            response = client.post(path, {}, format='json')
+        assert response.status_code == 502 and response.json()['error'] == expected
+
+
+def test_token_network_failure_preserves_stage_without_exception_text(setup):
+    from urllib.error import URLError
+    from .services import encrypt_secret
+    bot, _, client, path = setup
+    bot.encrypted_secret = encrypt_secret('synthetic-secret'); bot.save()
+    with patch('core.official.open_upstream', side_effect=URLError(ConnectionRefusedError('secret-host'))):
+        response = client.post(path, {}, format='json')
+    assert response.status_code == 502
+    assert response.json()['error'] == 'official_token_connection_refused'
+    assert b'secret-host' not in response.content
