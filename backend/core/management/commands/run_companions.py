@@ -1,6 +1,6 @@
 import time
 from concurrent.futures import ThreadPoolExecutor
-from django.db import close_old_connections
+from django.db import close_old_connections, OperationalError
 from django.core.management.base import BaseCommand
 from core.companions import flush_due, refresh_pairing, backfill_id_evidence
 from core.models import Channel
@@ -30,7 +30,11 @@ class Command(BaseCommand):
         pending = None
         try:
             while True:
-                flush_due(limit=1000)
+                try:
+                    flush_due(limit=1000)
+                except OperationalError:
+                    close_old_connections()
+                    self.stderr.write('Companion queue temporarily unavailable; retrying')
                 if time.monotonic() >= refresh_at and (pending is None or pending.done()):
                     # Slow/offline upstream discovery must not delay the two-second fallback queue.
                     pending = pool.submit(refresh_all)

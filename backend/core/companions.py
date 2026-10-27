@@ -295,10 +295,12 @@ def handle_event(event):
 
 @transaction.atomic
 def flush_due(channel_id=None, limit=100):
-    lock_cooperation()
     rows = CompanionObservation.objects.filter(side='primary', published=False, due_at__lte=timezone.now())
     if channel_id is not None:
         rows = rows.filter(channel_id=channel_id)
+    if not rows.exists():
+        return 0
+    lock_cooperation()
     # Lock order shared with ingestion: serialize cooperative dispatch across all involved Bots.
     ids = sorted(set(rows.values_list('event__bot_id', flat=True)))
     list(Bot.objects.select_for_update().filter(pk__in=ids).order_by('pk'))
