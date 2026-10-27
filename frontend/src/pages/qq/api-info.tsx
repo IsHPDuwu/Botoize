@@ -41,7 +41,8 @@ await fetch('${base}/onebot/v12/', {
 // 能力发现：get_supported_actions / botoize.get_capabilities
 // 已授权的已知会话：botoize.get_known_conversations
 // 12 事件轮询：get_latest_events，params: { limit: 100, timeout: 0 }，需要 events:read`}</code></pre>
-        <p className="text-muted-foreground">两版支持文本、图片、语音、视频、文件、引用、撤回及已映射群接口；12 增加字符串 ID、文件上传/分片、标准元动作/事件和频道能力。媒体最多一个附件，直传发送上限 5 MiB；不支持的消息段明确拒绝，不会偷偷改成文本。</p>
+        <p className="text-muted-foreground">QQ 官方上游支持文本、图片、语音、视频、文件、引用、撤回及已映射群接口；媒体最多一个附件，直传上限 5 MiB。OneBot 上游可在 Provider 中选择 11 或 12，填写上游 HTTP / 正向通用 WS 地址、Bot ID 和 Access Token；能力以协议及上游实现为准，11 没有标准文件消息段。</p>
+        <p className="text-muted-foreground">OneBot 11 上游接入下游 11 时保留真实数值 ID；OneBot 12 保留字符串 ID，接入下游 11 时才使用映射。事件可通过上游正向 WS worker 接收，或配置独立密钥上报到 /webhooks/onebot/内部 Bot ID/。详细命令和动作范围见 backend/ONEBOT_UPSTREAM.md。</p>
         <p className="text-muted-foreground">反向 WS 和 HTTP 上报由管理员运行后端 run_onebot，指定 Key ID、版本、传输和公网 HTTPS/WSS 443 接收地址；远端 token 与 11 签名 secret 通过环境变量配置，绝不默认把本地 Key 发给接收端。12 使用 12.botoize 子协议，11 使用 X-Self-ID / X-Client-Role。具体命令、动作矩阵和限制见仓库 backend/ONEBOT_SUPPORT.md。</p>
         <p className="text-muted-foreground">QQ群信息/成员/禁言/审批等可能要求 QQ 白名单、内邀或群管理员权限。不能枚举所有未知好友/群，不伪造群名、成员或完整列表；也不支持个人号 Cookie、匿名、好友赞或重启共享平台。普通 Key 不能访问其他 Bot、其他账号或未授权会话。</p>
       </CardContent></Card>

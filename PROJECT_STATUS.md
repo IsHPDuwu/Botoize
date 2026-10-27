@@ -1,8 +1,8 @@
 # Botoize 项目状态
 
-日期：2026-10-25（本次验收更新）
+日期：2026-10-27（OneBot 上游接入验收更新）
 
-状态：本地功能改造、OneBot 11/12 双版实现及真实 HTTP/WS 身份/撤权验收、真实后端 HTTP 八类群消息发送、Key 生命周期与 Gateway 心跳/Resume 已通过；尚未收到用户触发的真实入站事件。PostgreSQL 验收按用户要求暂缓，不宣称生产就绪。
+状态：Provider 已实现 OneBot 11/12 上游接入，并通过本地模拟上游及运行中 8000 服务的真实 HTTP/WS、发送与事件回流验收。此前 QQ 八类群消息、Key 生命周期与 Gateway 心跳/Resume 验收保留。真实第三方 OneBot 实现、公网接收端和用户触发的 QQ 新入站事件尚待联调；PostgreSQL 按用户要求暂缓，不宣称生产就绪。
 
 ## 资源契约
 
@@ -16,10 +16,10 @@ Provider 服务提供商
 ```
 
 - Bot 为内部执行与授权实体，不再作为 Model。数据库唯一约束保证一 Channel 一 Bot。
-- Django 迁移至 0028；0019 拆分旧共享 Channel，保留旧 Bot ID、事件与授权；0020 为旧 Bot 创建入口分配独立 Channel；0021 添加审计消息类型与幂等重放标记；0022–0023 支持多回调、精确目标/revision 和日志名称快照；0024–0028 添加 OneBot 消息上下文、Key 独立文件/分片、轮询游标、反向目标租约和频道归属。
+- Django 迁移至 0031；0019 拆分旧共享 Channel，保留旧 Bot ID、事件与授权；0020 为旧 Bot 创建入口分配独立 Channel；0021 添加审计消息类型与幂等重放标记；0022–0023 支持多回调、精确目标/revision 和日志名称快照；0024–0028 添加 OneBot 消息上下文、Key 独立文件/分片、轮询游标、反向目标租约和频道归属；0029–0031 添加上游事件密钥、文件句柄、fencing 租约、消息来源隔离及字符串 Bot/频道 ID。
 - Provider 管理、Channel 凭据和接口切换、会话添加与命名已贯通。已保存会话的身份不可修改，编辑器遗漏发现中的会话不会删除数据。
 - “同步”仅回填历史事件；未来由已验证事件发现，不枚举或伪造未知群/用户。
-- OneBot 上游仅预留；下游已实现 11/12 HTTP、正向通用/分离 WS、反向通用 WS、HTTP 上报及 12 轮询，平台未开放的功能明确不支持。
+- OneBot 11/12 上游支持 HTTP / 正向通用 WS 调用、独立 WS 事件 worker 和鉴权 HTTP 上报；下游 11/12 HTTP、正向通用/分离 WS、反向通用 WS、HTTP 上报及 12 轮询继续复用现有授权和会话隔离。
 
 ## 已完成的本地实现
 
@@ -76,13 +76,25 @@ Provider 服务提供商
 
 ## 验证证据
 
+### 本次 OneBot 上游
+
+- Provider Channel 可选择 `onebot_v11` / `onebot_v12`；Bot ID / 可选 Access Token / 独立 HTTP 上报密钥均在现有 Dialog 中配置，不返回秘密。
+- 上游 HTTP 11 为 action 路径 + params，12 为 action/params/echo/self 信封；正向 WS 按 echo 关联，不自动重试未知发送结果，QQ 官方接口不会接收 OneBot 凭据。
+- `run_onebot_upstream --bot ID` 使用单 Bot fencing 租约接收事件；HTTP `/webhooks/onebot/ID/` 使用 11 HMAC-SHA1 / 12 Bearer，未配置独立密钥时关闭。事件进入统一去重、会话发现、日志、轮询和下游投递。
+- 原生 11→11 保留数值 ID（含负数消息 ID）；下游 12 保留字符串，12→11 使用持久映射。消息上下文按配置来源隔离，协议切换不会复用旧上游记录；12 状态保留上游平台和离线状态。
+- Scope、授权链/revision、会话、Key 文件隔离继续生效；群/好友列表先过滤再输出；审批 flag 绑定当前授权事件。新好友 scope 不自动加入已有 Key。`/qq/` 对 OneBot Channel 返回 501。
+- 本地私网与明文上游由 `ONEBOT_UPSTREAM_ALLOW_PRIVATE` 控制（DEBUG 默认允许、生产默认拒绝），使用 DNS pinning / TLS，不跟随跳转、不读取环境代理；公共媒体下载策略保持独立。
+- 运行中 localhost:8000 真实 Session+CSRF 创建了两版临时 Provider，均通过 HTTP 身份/模拟消息发送、下游 WS 身份调用、HTTP 上报→WS 事件回流；每版持久化一条发送和一条入站事件。临时账号、Session、Key、审计及 Provider/Channel/Bot 已清理，真实 QQ 操作为 0。
+- 实际第三方 OneBot 实现和公网事件接收端尚待配置联调；不将本地模拟验收当作这些证据。详细字段、命令和动作范围见 `backend/ONEBOT_UPSTREAM.md`。
+
 | 验证 | 结果 |
 | --- | --- |
-| SQLite migrate | 已应用至 0028，重复执行无待迁移 |
-| 后端完整回归 | 422 passed（78.52 秒），包括 OneBot 双版动作/事件/文件/分片、正反向传输、撤权与跨 Key/账号/会话隔离，以及原有管理/审计回归；makemigrations --check 无变更 |
-| 前端组件/契约测试 | 21 passed，含六位 Request ID/全值复制、服务端筛选重置游标、独立系统仪表盘及原有管理契约 |
+| SQLite migrate | 已应用至 0031，makemigrations --check 无变更 |
+| 后端完整回归 | 453 passed（95.39 秒）；之后新增来源切换/状态/权限检查并完成相关定向回归，含上游临时 HTTP/WS 服务、事件鉴权、跨版 ID、文件、撤回、授权与 worker fencing |
+| 前端组件/契约测试 | 全量 21 passed；随后管理页定向 7 passed（含新增 OneBot 字符串 Bot ID、可选 Access Token、保留未编辑事件密钥契约） |
 | 前端 TypeScript / lint | 通过 |
 | 前端 production build | 通过，有大 chunk 体积警告 |
+| 本次界面目视验收 | computer-use 本地 native pipe 不可用，重试/重建会话后仍失败；未宣称目视通过，组件/类型/lint/构建通过 |
 | 官方官网新增路径校验 | 26/26 通过，含新增 6 项 QQ 群接口 |
 | OneBot 真实 HTTP/WS | 11 数字身份、12 字符串身份/能力/轮询/本地文件、两版通用 WS、>1 MiB 本地文件 WS 上传、撤销即关闭/HTTP 401 与批准群只读信息查询通过；5173 两版 HTTP/WS 代理鉴权拒绝也通过；无 QQ 发送/管理动作，临时账号/Key/文件清理 |
 | 本地 Key 实测 | 临时限权 Key 创建、两次复制同一 token、不可识别目标本地 403 通过 |
@@ -92,7 +104,7 @@ Provider 服务提供商
 | 全类型群消息 | 文本、Markdown、键盘、引用、图片、视频、语音、文件八类均 HTTP 200、返回 message ID、幂等重放通过；四类媒体上传也均 200；用户已确认群里全部收到，详见 backend/LIVE_ACCEPTANCE.md |
 | Key HTTP 生命周期 | 创建、两次同 token 复制、编辑不轮换、会话/scope 拒绝、撤销后 401 均通过 |
 | Gateway / 心跳 / Resume | READY、ACK 与持久 Bot 的中断后 RESUMED 均真实通过 |
-| 事件回流 | 后台 worker 在线，尚未收到用户在批准群 @Bot 的真实入站消息 |
+| 事件回流 | 本次两版 OneBot 模拟上游→真实 8000 HTTP→WS 回流通过；尚无用户在批准群 @QQ Bot 的新入站验收证据 |
 | 日志实际页面 | 已显示持久 Bot 6 的历史发送记录；新的一次无发送真实 HTTP 检查生成 /qq/users/@me 的 200 脱敏审计，权限 403 和撤销后 401 也可见；未重复发群消息 |
 | PostgreSQL 并发/多进程/故障恢复 | 用户要求暂缓，未测试 |
 
@@ -132,7 +144,8 @@ uv run --with imageio-ffmpeg python -u manage.py verify_live_backend --owner hpd
 - 前端：`http://127.0.0.1:5173/`
 - 后端：`http://127.0.0.1:8000/`，健康检查 `/health/`
 - OneBot 通用 WS：`ws://127.0.0.1:8000/onebot/v11/`、`ws://127.0.0.1:8000/onebot/v12/`；ASGI `--ws-max-size 12582912`。开发前端也代理 `/onebot` HTTP/WS。
-- 前后端与 Bot 6 的 Gateway worker 均后台运行。worker 只接收批准群：`run_gateway --bot 6 --intents 33554432 --allowed-group 36407554EC2084AF78BB2ECFC5820ACE --status`；其他群事件不入库。
+- 本次已在后台启动前端 5173 与后端 8000，健康检查均通过。QQ Gateway 此前验收命令为 `run_gateway --bot 6 --intents 33554432 --allowed-group 36407554EC2084AF78BB2ECFC5820ACE --status`；本次未重连真实 QQ 或重发群消息。
+- OneBot 上游事件 worker 为 `run_onebot_upstream --bot ID`；下游主动投递 worker 仍为 `run_onebot`，两者独立。配置 HTTP 上报则无需启动上游 WS worker。
 
 ## 后续验收（不能冒充完成）
 

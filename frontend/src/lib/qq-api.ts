@@ -26,6 +26,7 @@ export interface UpstreamChannel {
   name: string;
   base_url: string;
   interface_type: string;
+  event_reporting_enabled?: boolean;
   app_id: string;
   is_active: boolean;
   models: ConversationModel[];
@@ -172,7 +173,7 @@ export interface DashboardOverview {
 
 export interface ChannelStatus {
   bot: number; name: string; channel: number; channel_name: string; provider_name: string;
-  interface_type: string; enabled: boolean; worker_lease_live: boolean; session_recorded: boolean;
+  interface_type: string; enabled: boolean; worker_lease_live: boolean; session_recorded: boolean; upstream_connected?: boolean;
   lease_until: string | null; last_call_at: string | null; last_http_status: number | null;
 }
 

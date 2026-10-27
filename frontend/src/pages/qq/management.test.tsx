@@ -103,4 +103,19 @@ describe('conversation management UI', () => {
     expect(body.channels[0]).toHaveProperty('app_id','app')
     expect(body.channels[0].models).toEqual(models)
   })
+
+  it('saves a new OneBot Channel with a string Bot ID and optional access token', async () => {
+    const saved = vi.fn().mockResolvedValue(undefined)
+    vi.mocked(management).mockResolvedValue({})
+    render(<ProviderDialog current={{id:1,name:'OneBot Provider',channels:[{name:'OneBot 12',base_url:'http://127.0.0.1:3000',interface_type:'onebot_v12',app_id:'self:001',is_active:true,models:[]}]}} interfaces={[{interface_type:'onebot_v12',label:'OneBot 12',implemented:true}]} onClose={vi.fn()} onSaved={saved} />)
+    fireEvent.click(screen.getAllByRole('button', {name:'Channels'})[0])
+    expect(screen.getByLabelText('Bot ID')).toHaveValue('self:001')
+    expect(screen.getByLabelText('Access Token（可选）')).toHaveValue('')
+    expect(screen.getByLabelText('HTTP 上报密钥（可选）')).toHaveValue('')
+    fireEvent.click(screen.getByRole('button', {name:'保存'}))
+    await waitFor(() => expect(saved).toHaveBeenCalled())
+    const body = vi.mocked(management).mock.calls[0][1] as {channels: Record<string, unknown>[]}
+    expect(body.channels[0]).toMatchObject({interface_type:'onebot_v12', app_id:'self:001', secret:''})
+    expect(body.channels[0]).not.toHaveProperty('event_secret')
+  })
 })
