@@ -21,6 +21,14 @@ def identifier(value):
     return value
 
 
+def message_identifier(value):
+    # QQ message IDs and reference indexes are opaque data, not URL path parts.
+    if (not isinstance(value, str) or not 1 <= len(value) <= 256
+            or any(ord(char) <= 32 or ord(char) == 127 for char in value)):
+        raise OneBotError(10003, 'Expected a nonempty string message ID without whitespace or control characters')
+    return value
+
+
 def integer(value, minimum=0, maximum=2147483647):
     if type(value) is not int or not minimum <= value <= maximum:
         raise OneBotError(10003, 'Invalid integer parameter')

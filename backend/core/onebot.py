@@ -12,7 +12,7 @@ from rest_framework.response import Response
 from .conversations import check_conversation, grant_chain, key_grant
 from .models import Conversation, OneBotMessage
 from .official import OfficialCredentialError, get_self, send_message, delete_message, upload_media
-from .onebot_common import OneBotError, fields, identifier, segment_fields
+from .onebot_common import OneBotError, fields, identifier, message_identifier, segment_fields
 from .onebot_files import file_action, owned_file, file_bytes, decode_data, download
 from .onebot_ids import original_id, virtual_id
 from .onebot_guilds import GUILD_SCOPES
@@ -95,13 +95,13 @@ def resolve_id(bot, kind, value, version):
         if onebot_version(bot):
             from .onebot_upstream import native_id
             return native_id(value, 12)
-        return identifier(value)
+        return message_identifier(value) if kind == 'message' else identifier(value)
     try:
         original = original_id(bot, kind, value)
         if onebot_version(bot):
             from .onebot_upstream import native_id
             return native_id(original, 12)
-        return identifier(original)
+        return message_identifier(original) if kind == 'message' else identifier(original)
     except ValueError:
         raise OneBotError(10003, 'Unknown or invalid virtual ID') from None
 
