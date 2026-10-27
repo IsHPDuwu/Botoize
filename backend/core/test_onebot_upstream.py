@@ -128,6 +128,34 @@ def upstream_server(bot, websocket=False):
         thread.join(timeout=5)
 
 
+@pytest.mark.parametrize('scheme', ['http', 'https', 'ws', 'wss'])
+def test_local_endpoint_accepts_supported_transports_when_enabled(scheme):
+    from .upstreams import validate_onebot_url
+    with override_settings(ONEBOT_UPSTREAM_ALLOW_PRIVATE=True):
+        assert validate_onebot_url(f'{scheme}://127.0.0.1:3000/') == f'{scheme}://127.0.0.1:3000'
+
+
+@pytest.mark.parametrize('url,expected', [
+    ('127.0.0.1:3000', '开头'),
+    ('ws://127.0.0.1:99999', '端口'),
+    ('ws://127.0.0.1:3000/?access_token=never-echo-this-secret', 'Access Token'),
+    ('http://user:never-echo-this-secret@127.0.0.1:3000', 'Access Token'),
+    ('ws://127.0.0.1:0', '端口 0'),
+])
+def test_endpoint_validation_explains_problem_without_echoing_credentials(url, expected):
+    from .upstreams import validate_onebot_url
+    with override_settings(ONEBOT_UPSTREAM_ALLOW_PRIVATE=True), pytest.raises(ValueError) as error:
+        validate_onebot_url(url)
+    assert expected in str(error.value)
+    assert 'never-echo-this-secret' not in str(error.value)
+
+
+def test_endpoint_validation_explains_private_transport_opt_in():
+    from .upstreams import validate_onebot_url
+    with override_settings(ONEBOT_UPSTREAM_ALLOW_PRIVATE=False), pytest.raises(ValueError, match='ONEBOT_UPSTREAM_ALLOW_PRIVATE=1'):
+        validate_onebot_url('ws://127.0.0.1:3000')
+
+
 @pytest.mark.parametrize('transport', ['http', 'websocket'])
 def test_real_wire_send_and_identity(setup, transport):
     bot, _, _, key, _, client = setup

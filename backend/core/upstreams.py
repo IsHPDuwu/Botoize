@@ -31,21 +31,25 @@ def validate_onebot_url(value):
         raise ValueError('Invalid OneBot endpoint')
     try:
         target = urlsplit(value)
-        if (target.scheme not in {'http', 'https', 'ws', 'wss'} or not target.hostname
-                or target.username is not None or target.password is not None or target.query or target.fragment
-                or target.port == 0 or '%' in target.path or any(p in {'.', '..'} for p in target.path.split('/'))):
-            raise ValueError
-        if target.scheme in {'http', 'ws'} and not settings.ONEBOT_UPSTREAM_ALLOW_PRIVATE:
-            raise ValueError('Plaintext OneBot endpoints require ONEBOT_UPSTREAM_ALLOW_PRIVATE=1')
-        if not settings.ONEBOT_UPSTREAM_ALLOW_PRIVATE:
-            try:
-                address = ipaddress.ip_address(target.hostname)
-            except ValueError:
-                address = None
-            if (address and not address.is_global) or target.hostname.lower() == 'localhost' or target.hostname.lower().endswith('.localhost'):
-                raise ValueError
+        port = target.port
+        host = target.hostname
     except (ValueError, UnicodeError):
-        raise ValueError('Invalid or disallowed OneBot endpoint') from None
+        raise ValueError('OneBot 地址格式或端口不合法；请使用完整的 http(s):// 或 ws(s):// 地址') from None
+    if target.scheme not in {'http', 'https', 'ws', 'wss'} or not host:
+        raise ValueError('OneBot 地址必须以 http://、https://、ws:// 或 wss:// 开头，并填写主机地址')
+    if target.username is not None or target.password is not None or target.query:
+        raise ValueError('OneBot 地址不能包含用户名、密码或 query 参数；请将令牌填入独立的 Access Token 字段')
+    if target.fragment or port == 0 or '%' in target.path or any(p in {'.', '..'} for p in target.path.split('/')):
+        raise ValueError('OneBot 地址不能包含 fragment、编码路径、相对路径或端口 0')
+    if target.scheme in {'http', 'ws'} and not settings.ONEBOT_UPSTREAM_ALLOW_PRIVATE:
+        raise ValueError('HTTP/WS 需要后端配置 ONEBOT_UPSTREAM_ALLOW_PRIVATE=1；也可使用 HTTPS/WSS')
+    if not settings.ONEBOT_UPSTREAM_ALLOW_PRIVATE:
+        try:
+            address = ipaddress.ip_address(host)
+        except ValueError:
+            address = None
+        if (address and not address.is_global) or host.lower() == 'localhost' or host.lower().endswith('.localhost'):
+            raise ValueError('本机或内网 OneBot 地址需要后端配置 ONEBOT_UPSTREAM_ALLOW_PRIVATE=1')
     return value.rstrip('/')
 
 

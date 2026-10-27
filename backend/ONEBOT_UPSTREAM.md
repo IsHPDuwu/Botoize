@@ -39,6 +39,8 @@ HTTP 11 向 `{base_url}/{action}` POST params；12 向基础地址 POST action /
 
 只有 Owner 能配置地址和凭据。开发 DEBUG 默认允许本机/内网与 HTTP/WS；生产默认关闭，确需连接本机/LAN 时设置 **`ONEBOT_UPSTREAM_ALLOW_PRIVATE=1`** 并重启服务及 worker。开启表示信任 Owner 配置的网络目的地。禁止 URL 中的用户名、密码、query 和 fragment；每次连接解析并固定地址，不跟随重定向、不读取环境代理，不将上游 token 发送到下载链接。QQ 官方接口的既有代理设置不受影响。
 
+地址校验会区分缺少协议、非法端口、URL 内含凭据 / query、路径限制以及私网 / 明文未启用。Access Token 填独立字段，不附加 `?access_token=...`。例如本地通用 WS 可填 `ws://127.0.0.1:3001`，HTTP API 可填 `http://127.0.0.1:3000`，端口应使用上游实际监听的值。
+
 Bot ID 在当前数据库仍全局唯一，同一 Bot ID 不能重复建 Channel。跨协议切换必须重新输入凭据或显式清空 OneBot token；已有会话 ID 与新协议不兼容时应创建新 Channel。地址/协议变化和凭据轮换会使旧 Key 失效，需要重新授权并创建 Key。
 
 ## 接收事件
