@@ -34,7 +34,7 @@ def claim(bot_id):
 
 
 @transaction.atomic
-def renew(bot, token, *, connected=None, platform=None):
+def _renew(bot, token, *, connected=None, platform=None):
     current = Bot.objects.select_for_update(of=('self',)).select_related('channel').get(pk=bot.pk)
     if not current.is_active or configuration_digest(current) != configuration_digest(bot):
         raise LeaseLost('OneBot Channel disabled or configuration changed')
@@ -46,6 +46,12 @@ def renew(bot, token, *, connected=None, platform=None):
     if not OneBotUpstreamSession.objects.filter(bot=bot, lease_token=token,
             lease_until__gt=timezone.now()).update(**changes):
         raise LeaseLost('OneBot worker lease lost')
+
+
+def renew(bot, token, *, connected=None, platform=None):
+    _renew(bot, token, connected=connected, platform=platform)
+    from .connection_control import check_reconnect
+    check_reconnect(bot)
 
 
 def release(bot, token):

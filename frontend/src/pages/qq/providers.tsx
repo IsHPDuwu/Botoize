@@ -9,21 +9,23 @@ import { PageHeader } from '@/components/ui/page-header'
 import { QueryError } from '@/components/ui/query-error'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useQQAuth } from '@/hooks/use-qq-auth'
-import { management, type UpstreamInterface, type UpstreamProvider } from '@/lib/qq-api'
+import { management, type UpstreamInterface, type UpstreamProvider, type ChannelStatus } from '@/lib/qq-api'
 import { ProviderDialog } from './provider-dialog'
+import { ChannelConnection } from './channel-connection'
 import { ChannelIdentity } from './channel-identity'
 
 export function ProvidersPage() {
   const { user } = useQQAuth()
   const { data, error, isLoading, isValidating, mutate: reload } = useSWR('qq/providers', () => management<UpstreamProvider[]>('providers/'))
   const interfaces = useSWR('qq/upstream-interfaces', () => management<UpstreamInterface[]>('upstream-interfaces/'))
+  const connections = useSWR('qq/channels/status', () => management<ChannelStatus[]>('channels/status/'), {refreshInterval:5000})
   const [editor, setEditor] = useState<{ current: UpstreamProvider | null } | null>(null)
   const [expanded, setExpanded] = useState<Set<number>>(new Set())
   const label = (type: string) => interfaces.data?.find(item => item.interface_type === type)?.label ?? type
   if (error && !data) return <QueryError onRetry={reload} retrying={isValidating} />
   return <div className='flex min-h-0 flex-col gap-5 pb-8'>
     <PageHeader title='服务提供商' description='Provider 是服务提供商，Channel 是 Bot，Models 是会话。' actions={<>
-      <Button variant='outline' disabled={isValidating} onClick={() => void reload()}><RefreshCw className={isValidating ? 'animate-spin' : ''} />刷新</Button>
+      <Button variant='outline' disabled={isValidating} onClick={() => { void reload(); void connections.mutate() }}><RefreshCw className={isValidating ? 'animate-spin' : ''} />刷新</Button>
       {user?.role === 'Owner' && <Button onClick={() => setEditor({ current: null })} disabled={!interfaces.data}><Plus />添加服务提供商</Button>}
     </>} />
     {interfaces.error && <QueryError onRetry={interfaces.mutate} retrying={interfaces.isValidating} />}
@@ -45,6 +47,7 @@ export function ProvidersPage() {
           <div className='flex flex-wrap gap-2'>{Array.from(new Set(provider.channels.map(channel => channel.interface_type))).map(type => <Badge key={type} variant='outline'>{label(type)}</Badge>)}</div>
           {open && <div className='mt-4 space-y-3 border-t pt-4'>{provider.channels.map(channel => <div key={channel.id} className='rounded-lg border'>
             <div className='flex flex-wrap items-center justify-between gap-2 border-b bg-muted/10 px-4 py-3'><div className='flex min-w-0 items-center gap-2'><Layers3 className='size-4 shrink-0' /><span className='truncate text-sm font-medium'>{channel.name}</span></div><span className='text-xs text-muted-foreground'>{label(channel.interface_type)}</span></div>
+            <ChannelConnection channel={channel} status={connections.data?.find(row => row.channel === channel.id)} failed={!!connections.error} canReconnect={user?.role === 'Owner'} onRefresh={connections.mutate}/>
             <ChannelIdentity key={`${channel.id}:${channel.interface_type}:${channel.app_id}:${channel.base_url}`} channel={channel} canRefresh={user?.role === 'Owner'} onRefresh={reload}/>
             {channel.models.length ? channel.models.map(model => <div key={model.id} className='flex items-center justify-between gap-3 border-b px-4 py-3 last:border-b-0'>
               <div className='min-w-0'><p className='truncate text-sm font-medium'>{model.name || (model.isDirect ? '单聊' : '群聊')}</p><p className='truncate font-mono text-xs text-muted-foreground'>{model.userid ?? model.groupid}</p></div>

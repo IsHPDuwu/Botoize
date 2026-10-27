@@ -154,6 +154,12 @@ def schema():
     add('/api/v1/providers/', 'post', 'createProvider', properties=provider_input, required=['name', 'channels'], status='201')
     add('/api/v1/providers/{id}/', 'patch', 'updateProvider', properties=provider_input, required=['name', 'channels'])
     add('/api/v1/channels/{id}/sync/', 'post', 'backfillConversations', properties={})
+    add('/api/v1/channels/{id}/identity/', 'post', 'refreshChannelIdentity', properties={}, response=object_schema({
+        'onebot11': {'type': 'integer'}, 'onebot12': STRING}, ['onebot11', 'onebot12']))
+    paths['/api/v1/channels/{id}/identity/']['post']['responses']['502'] = {'description': 'Upstream identity unavailable; saved IDs retained'}
+    add('/api/v1/channels/status/', 'get', 'listChannelConnections')
+    add('/api/v1/channels/{id}/reconnect/', 'post', 'reconnectChannel', properties={}, status='202',
+        response=object_schema({'channel': INTEGER, 'state': {'const': 'queued'}, 'detail': STRING}, ['channel', 'state', 'detail']))
     add('/api/v1/upstream-interfaces/', 'get', 'listUpstreamInterfaces')
     add('/api/v1/scopes/', 'get', 'listScopes')
     add('/api/v1/keys/{id}/', 'get', 'getKey')
@@ -214,7 +220,10 @@ def schema():
         'Interface': object_schema({'interface_type': STRING, 'label': STRING, 'implemented': BOOLEAN}),
         'Attempt': object_schema({'id': INTEGER, 'generation': INTEGER, 'attempt_number': INTEGER, 'state': STRING, 'http_status': {'type': ['integer', 'null']}, 'error_code': STRING, 'started_at': DATE, 'finished_at': DATE}),
         'ApiCall': object_schema({'id': INTEGER, 'request_id': STRING, 'bot': {'type': ['integer', 'null']}, 'api_key': {'type': ['integer', 'null']}, 'bot_name': STRING, 'username': STRING, 'key_name': STRING, 'method': STRING, 'path': STRING, 'message_type': STRING, 'replayed': {'type': ['boolean', 'null']}, 'status_code': INTEGER, 'duration_ms': {'type': 'integer'}, 'created_at': DATE}),
-        'ChannelStatus': object_schema({'bot': INTEGER, 'name': STRING, 'channel': INTEGER, 'channel_name': STRING, 'provider_name': STRING, 'interface_type': STRING, 'enabled': BOOLEAN, 'worker_lease_live': BOOLEAN, 'session_recorded': BOOLEAN, 'upstream_connected': BOOLEAN, 'lease_until': DATE, 'last_call_at': DATE, 'last_http_status': {'type': ['integer', 'null']}}),
+        'ChannelStatus': object_schema({'bot': INTEGER, 'name': STRING, 'channel': INTEGER, 'channel_name': STRING, 'provider_name': STRING, 'interface_type': STRING, 'enabled': BOOLEAN, 'worker_lease_live': BOOLEAN, 'session_recorded': BOOLEAN, 'upstream_connected': BOOLEAN, 'lease_until': DATE, 'last_call_at': DATE, 'last_http_status': {'type': ['integer', 'null']},
+            'connection_state': {'type': 'string', 'enum': ['disabled', 'reconnect_pending', 'webhook', 'connected', 'connecting', 'disconnected']},
+            'reconnect_requested_at': DATE, 'reconnect_processed_at': DATE, 'last_check_at': DATE,
+            'last_check_ok': {'type': ['boolean', 'null']}, 'connection_error': STRING}),
         'Invitation': object_schema({'id': INTEGER, 'expires_at': DATE, 'used_at': DATE, 'accepted_by': {'type': ['integer', 'null']}, 'created_at': DATE}),
         'Quota': object_schema({'id': INTEGER, 'scope': STRING, 'subject_id': {'type': 'integer'}, 'window_seconds': INTEGER, 'limit': {'type': 'integer'}, 'is_active': BOOLEAN, 'used': {'type': 'integer'}, 'resets_at': {'type': 'integer'}}),
         'OfficialResponse': {'description': 'QQ-owned raw JSON response; no normalization or guarantee of upstream success.', 'type': ['object', 'array', 'string', 'number', 'boolean', 'null'], 'additionalProperties': True},
@@ -240,6 +249,7 @@ def schema():
         'upstream_version': {'type': 'integer', 'enum': [11, 12]},
         'onebot_actions': object_schema({'11': array(STRING), '12': array(STRING)}), **policy})
     responses['dashboardOverview'] = object_schema({**{name: {'type': 'integer'} for name in ['window_hours', 'bot_count', 'active_bot_count', 'gateway_worker_count', 'api_call_count', 'api_success_count', 'api_error_count', 'event_count', 'delivery_count', 'delivered_count', 'pending_count', 'processing_count', 'failed_count', 'cancelled_count']}, 'window_start': DATE, 'generated_at': DATE, 'channels': array(ref('ChannelStatus'))})
+    responses['listChannelConnections'] = array(ref('ChannelStatus'))
     for methods in paths.values():
         for op in methods.values():
             if op['operationId'] in responses:

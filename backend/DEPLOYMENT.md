@@ -11,7 +11,17 @@
 
 调度频率决定重试延迟与吞吐；每分钟一次、每批 20 条的容量至多约 20 条/分钟，网络超时还会降低容量。不要把两秒退避理解成两秒内必定重试。定时任务应使用 backend 为工作目录和该项目环境。
 
-### 官方 Gateway 独立进程
+### 控制台连接管理进程
+
+由服务管理器常驻 `uv run --locked python manage.py run_connections`，处理 Owner 在服务提供商页提交的连接请求。它按请求启动缺失的 `run_gateway` / `run_onebot_upstream` worker；已有有效租约的 worker 自行消费请求并重连，不会抢占其租约。启动管理进程不会自动连接所有 Channel。官机默认 intents 为 33554432，可用 `--intents` 指定，已有会话优先保留原 intents；验收可加 `--allowed-group OPENID` 限定其启动的官机 worker。
+
+页面每 5 秒读取 `GET /api/v1/channels/status/` 的持久状态；有效租约与已建立事件连接分别判断，过期或配置已变更的连接快照不会显示为已连接。它不是 Bot 实时在线保证。`POST /api/v1/channels/CHANNEL_ID/reconnect/` 只接受 Owner Session + CSRF 和空 JSON，返回 202 表示排队；连续重复请求合并，worker 下一次检查后断开再连接。关停管理进程会终止它启动的子进程，外部服务管理器启动的 worker 独立运行。
+
+Webhook 无常驻连接，其按钮仅排队执行上游 HTTP 身份检查，不声称 WebSocket 在线。首次部署可点击 Channel 的“获取 / 刷新 ID”，直接获取并保存下游 Self ID；该操作不依赖连接管理进程。迁移到新服务器须保留数据库，才能保留 OB11 数字映射。
+
+主从协作另需常驻 `uv run --locked python manage.py run_companions`，维护主机逐条接收回退与群/真实 ID 匹配。详见 [主从协作](COMPANIONS.md)。
+
+### 官方 Gateway worker
 
 由服务管理器为每个 Bot 单独运行 `uv run --locked python manage.py run_gateway --bot BOT_ID --intents BITMASK`，intents 必须按 QQ 已授权事件位显式配置，不默认申请全部权限。
 进程通过官方 `/gateway/bot` 发现地址，只接受 api.bot.qq.com / api.sgroup.qq.com 的 WSS websocket 路径。可用 `QQ_GATEWAY_HOST=api.bot.qq.com` 指定当前文档官方域名；覆盖值同样禁止任意主机。使用官方 Identify、Resume、心跳和 ACK，不提供下游 Gateway 登录能力。
@@ -39,7 +49,7 @@ Provider 的 OneBot 11/12 Channel 使用 `uv run --locked python manage.py run_o
 
 ## 升级、备份与开发验收
 
-- 当前迁移至 0031：0022–0023 为多回调和名称快照；0024–0028 为 OneBot 消息上下文、Key 文件/分片、轮询游标、反向目标租约和频道归属；0029–0031 为 OneBot 上游事件密钥/文件句柄/worker 租约、消息来源隔离和字符串 Bot/频道 ID。升级仍需先备份数据库和加密密钥，migrate 完成后重启 API、Gateway、OneBot 与投递 worker，防止旧进程继续使用旧模型。无待迁移时可重复执行。
+- 当前迁移至 0038：0022–0023 为多回调和名称快照；0024–0028 为 OneBot 消息上下文、Key 文件/分片、轮询游标、反向目标租约和频道归属；0029–0031 为 OneBot 上游接入；0032–0036 为主从协作、群/真实 ID 匹配与接入身份；0037–0038 为实际连接快照和绑定配置版本的持久重连请求。升级仍需先备份数据库和加密密钥，migrate 完成后重启 API、连接管理、主从维护、Gateway、OneBot 与投递 worker，防止旧进程继续使用旧模型。无待迁移时可重复执行。
 
 - 升级前备份数据库与独立保存的 BOT_ENCRYPTION_KEY；先在备份副本演练 migrate。0019 保留旧 Bot ID 和授权，将旧共享 Channel 拆为一 Bot 一 Channel；0020 修复旧创建流程的默认 Channel 隔离；0021 添加 API 审计消息类型和重放标记，历史行保留且重放状态未知。
 - 新 Key 按产品要求在数据库明文保存原 token，只有摘要的历史 token 无法恢复。限制数据库、备份与日志访问；备份介质应加密，撤销泄露凭据。不要将 .env、config.txt、SECRET.txt 提交或放入前端资源。

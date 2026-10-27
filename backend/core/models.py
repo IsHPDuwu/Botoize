@@ -43,6 +43,18 @@ class Channel(models.Model):
         constraints = [models.UniqueConstraint(fields=['provider', 'name'], name='unique_provider_channel_name')]
 
 
+class ChannelConnectionRequest(models.Model):
+    channel = models.OneToOneField(Channel, on_delete=models.CASCADE)
+    generation = models.PositiveBigIntegerField(default=0)
+    processed_generation = models.PositiveBigIntegerField(default=0)
+    requested_at = models.DateTimeField(null=True)
+    processed_at = models.DateTimeField(null=True)
+    checked_at = models.DateTimeField(null=True)
+    reachable = models.BooleanField(null=True)
+    error_code = models.CharField(max_length=40, blank=True)
+    configuration = models.CharField(max_length=64, blank=True)
+
+
 def default_channel_id():
     # Historical migration 0014 references this callable. Keep its lookup compatible
     # with the schema at that point (before Channel.base_url existed).
@@ -98,6 +110,7 @@ class BotGrant(models.Model):
 
 class GatewaySession(models.Model):
     """One single-shard Gateway consumer per Bot, fenced by a renewable lease."""
+    connected = models.BooleanField(default=False)
     bot = models.OneToOneField(Bot, on_delete=models.CASCADE)
     lease_token = models.UUIDField(null=True, editable=False)
     lease_until = models.DateTimeField(null=True)

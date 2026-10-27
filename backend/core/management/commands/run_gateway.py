@@ -8,6 +8,7 @@ from core.gateway import (FATAL_CLOSE_CODES, GatewayError, LeaseLost, Reconnect,
                           claim, clear_session, consume_connection, release, renew)
 from core.models import Bot
 from core.official import OfficialCredentialError
+from core.connection_control import ManualReconnect
 
 
 class Command(BaseCommand):
@@ -35,6 +36,9 @@ class Command(BaseCommand):
                                        on_status=status if options['status'] else None)
                 except LeaseLost:
                     raise
+                except ManualReconnect:
+                    failures = 0
+                    continue
                 except ConnectionClosed as error:
                     code = error.rcvd.code if error.rcvd is not None else None
                     if code in FATAL_CLOSE_CODES:
@@ -50,7 +54,11 @@ class Command(BaseCommand):
                 self.stderr.write('Gateway reconnect scheduled')
                 deadline = time.monotonic() + delay
                 while time.monotonic() < deadline:
-                    renew(bot, token)
+                    try:
+                        renew(bot, token)
+                    except ManualReconnect:
+                        failures = 0
+                        break
                     time.sleep(min(5, max(0, deadline - time.monotonic())))
         except KeyboardInterrupt:
             pass

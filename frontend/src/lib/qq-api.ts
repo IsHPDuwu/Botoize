@@ -188,6 +188,9 @@ export interface ChannelStatus {
   bot: number; name: string; channel: number; channel_name: string; provider_name: string;
   interface_type: string; enabled: boolean; worker_lease_live: boolean; session_recorded: boolean; upstream_connected?: boolean;
   lease_until: string | null; last_call_at: string | null; last_http_status: number | null;
+  connection_state?: 'disabled' | 'reconnect_pending' | 'webhook' | 'connected' | 'connecting' | 'disconnected';
+  reconnect_requested_at?: string | null; reconnect_processed_at?: string | null;
+  last_check_at?: string | null; last_check_ok?: boolean | null; connection_error?: string;
 }
 
 export type ApiCallFilters = Partial<Record<'search' | 'username' | 'path' | 'bot' | 'api_key' | 'method' | 'status' | 'replayed' | 'from' | 'to', string>>;

@@ -4,6 +4,7 @@ import json
 import platform
 import time
 import uuid
+from functools import wraps
 from datetime import timedelta
 from urllib.parse import urlsplit, urlunsplit
 
@@ -52,7 +53,7 @@ def claim(bot_id, intents):
     token = uuid.uuid4()
     acquired = GatewaySession.objects.filter(pk=row.pk).filter(
         Q(lease_until__isnull=True) | Q(lease_until__lte=now),
-    ).update(lease_token=token, lease_until=now + timedelta(seconds=LEASE_SECONDS))
+    ).update(lease_token=token, lease_until=now + timedelta(seconds=LEASE_SECONDS), connected=False)
     if not acquired:
         raise GatewayError('Another Gateway worker holds this Bot lease')
     digest = credential_digest(bot)
@@ -73,10 +74,12 @@ def renew(bot, token):
         bot=bot, lease_token=token, lease_until__gt=now,
     ).update(lease_until=now + timedelta(seconds=LEASE_SECONDS)):
         raise LeaseLost('Gateway lease expired or was replaced')
+    from .connection_control import check_reconnect
+    check_reconnect(bot)
 
 
 def release(bot, token):
-    GatewaySession.objects.filter(bot=bot, lease_token=token).update(lease_token=None, lease_until=None)
+    GatewaySession.objects.filter(bot=bot, lease_token=token).update(lease_token=None, lease_until=None, connected=False)
 
 
 def clear_session(bot, token):
@@ -118,7 +121,9 @@ def dispatch(bot, token, payload, allowed_group=None):
             # official event or acknowledge an event that failed durable ingestion.
             ingest_event(current, payload)
     row.sequence = sequence
-    row.save(update_fields=['session_id', 'sequence'])
+    if event_type in {'READY', 'RESUMED'}:
+        row.connected = True
+    row.save(update_fields=['session_id', 'sequence', 'connected'])
     return row
 
 
@@ -163,6 +168,17 @@ def send(socket, opcode, data):
     socket.send(json.dumps({'op': opcode, 'd': data}, separators=(',', ':')))
 
 
+def clear_connection_on_exit(function):
+    @wraps(function)
+    def wrapped(bot, token, *args, **kwargs):
+        try:
+            return function(bot, token, *args, **kwargs)
+        finally:
+            GatewaySession.objects.filter(bot=bot, lease_token=token).update(connected=False)
+    return wrapped
+
+
+@clear_connection_on_exit
 def consume_connection(bot, token, allowed_group=None, on_status=None):
     renew(bot, token)
     row = GatewaySession.objects.get(bot=bot, lease_token=token)

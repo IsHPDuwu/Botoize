@@ -177,7 +177,8 @@ def test_channel_snapshot_scopes_last_http_call_and_never_claims_online(account)
     make_call(user, bot)
     other = User.objects.create_user('channel-other')
     make_call(other, bot, status_code=503)
-    GatewaySession.objects.create(bot=bot, lease_token=uuid4(), lease_until=timezone.now() + timedelta(minutes=1), session_id='snapshot')
+    from .gateway import credential_digest
+    GatewaySession.objects.create(bot=bot, credential_digest=credential_digest(bot), lease_token=uuid4(), lease_until=timezone.now() + timedelta(minutes=1), session_id='snapshot')
     result = client.get('/api/v1/dashboard/overview/').json()
     assert result['gateway_worker_count'] == 1
     channel = result['channels'][0]

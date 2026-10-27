@@ -4,9 +4,10 @@ import time
 from django.core.management.base import BaseCommand, CommandError
 from websockets.exceptions import WebSocketException
 
-from core.models import Bot
+from core.models import Bot, OneBotUpstreamSession
 from core.onebot_common import OneBotError
 from core.onebot_upstream_worker import claim, renew, release, consume, LeaseLost
+from core.connection_control import ManualReconnect
 
 
 class Command(BaseCommand):
@@ -27,13 +28,25 @@ class Command(BaseCommand):
                     consume(bot, token)
                 except LeaseLost:
                     raise
+                except ManualReconnect:
+                    OneBotUpstreamSession.objects.filter(bot=bot, lease_token=token).update(connected=False)
+                    failures = 0
+                    continue
                 except (OneBotError, OSError, TimeoutError, WebSocketException, ValueError):
-                    renew(bot, token, connected=False)
+                    try:
+                        renew(bot, token, connected=False)
+                    except ManualReconnect:
+                        failures = 0
+                        continue
                 failures = min(failures + 1, 5)
                 deadline = time.monotonic() + min(2 ** failures, 25) + random.random()
                 self.stderr.write('OneBot upstream reconnect scheduled')
                 while time.monotonic() < deadline:
-                    renew(bot, token)
+                    try:
+                        renew(bot, token)
+                    except ManualReconnect:
+                        failures = 0
+                        break
                     time.sleep(min(5, max(0, deadline - time.monotonic())))
         except KeyboardInterrupt:
             pass
