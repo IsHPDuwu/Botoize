@@ -7,7 +7,7 @@ from rest_framework.response import Response
 
 from .models import Provider, Channel, Bot, AuditLog, Conversation, Event, BotGrant
 from .services import encrypt_secret, update_bot
-from .upstreams import INTERFACES, validate_interface, validate_base_url
+from .upstreams import INTERFACES, validate_interface, validate_base_url, validate_onebot_url, onebot_version
 from .views import ManagementView, owner, fields
 from .conversations import conversation_data, grant_current, discover
 
@@ -34,6 +34,7 @@ def provider_data(provider, user):
                 models = models.filter(pk__in=grant.conversations.values('pk'))
         channels.append({'id': channel.pk, 'bot_id': bot.pk, 'name': channel.name,
                          'base_url': channel.base_url, 'interface_type': channel.interface_type,
+                         'event_reporting_enabled': bool(channel.encrypted_event_secret),
                          'app_id': bot.app_id, 'is_active': bot.is_active,
                          'models': [conversation_data(model) for model in models]})
     return {'id': provider.pk, 'name': provider.name, 'channels': channels}
@@ -47,9 +48,16 @@ def save_model(bot, model):
     target_key = 'userid' if direct else 'groupid'
     if ('groupid' if direct else 'userid') in model:
         raise ValidationError('Select exactly one conversation target')
-    target = text(model, target_key, 128)
+    target = text(model, target_key, 256 if onebot_version(bot) else 128)
     import re
-    if not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', target):
+    if onebot_version(bot):
+        from .onebot_upstream import native_id
+        from .onebot_common import OneBotError
+        try:
+            target = str(native_id(target, onebot_version(bot)))
+        except OneBotError:
+            raise ValidationError('Invalid OneBot conversation ID') from None
+    elif not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', target):
         raise ValidationError('Invalid upstream OpenID')
     name = model.get('name', '')
     if not isinstance(name, str) or len(name) > 120:
@@ -79,44 +87,82 @@ def save_provider(request, pk=None):
     provider.save()
     seen_channels = set()
     for item in channels:
-        fields(item, ['id', 'bot_id', 'name', 'interface_type', 'base_url', 'app_id', 'secret', 'is_active', 'models'],
+        fields(item, ['id', 'bot_id', 'name', 'interface_type', 'base_url', 'app_id', 'secret', 'clear_secret', 'event_secret', 'event_reporting_enabled', 'is_active', 'models'],
                ['name', 'interface_type', 'app_id', 'is_active', 'models'])
         try:
             validate_interface(item['interface_type'])
-            base_url = validate_base_url(item.get('base_url', 'https://api.bot.qq.com'))
+            is_onebot = item['interface_type'] in {'onebot_v11', 'onebot_v12'}
+            base_url = (validate_onebot_url(item.get('base_url')) if is_onebot else
+                        validate_base_url(item.get('base_url', 'https://api.bot.qq.com')))
         except ValueError as exc:
             raise ValidationError(str(exc)) from None
         channel_id = item.get('id')
         if channel_id is not None and (type(channel_id) is not int or channel_id in seen_channels):
             raise ValidationError('Invalid or duplicate channel ID')
         channel = get_object_or_404(Channel.objects.select_for_update(), provider=provider, pk=channel_id) if channel_id is not None else Channel(provider=provider)
+        old_interface = channel.interface_type if channel.pk else None
+        protocol_changed = old_interface is not None and old_interface != item['interface_type'] and not (
+            old_interface.startswith('qq_official_') and item['interface_type'].startswith('qq_official_'))
+        if protocol_changed and not item.get('secret') and item.get('clear_secret') is not True:
+            raise ValidationError('Protocol changes require a new secret or explicit clear_secret for OneBot')
+        if protocol_changed:
+            channel.encrypted_event_secret = ''
         transport_changed = channel.pk and (channel.base_url != base_url or channel.interface_type != item['interface_type'])
         channel.name = text(item, 'name')
         channel.base_url, channel.interface_type = base_url, item['interface_type']
+        if 'event_secret' in item:
+            value = item['event_secret']
+            if not is_onebot or not isinstance(value, str) or len(value) > 4096:
+                raise ValidationError('Invalid OneBot event secret')
+            # Omit to retain, non-empty to rotate, empty to disable HTTP reporting.
+            channel.encrypted_event_secret = encrypt_secret(value) if value else ''
         channel.save()
         seen_channels.add(channel.pk)
         if type(item['is_active']) is not bool:
             raise ValidationError('is_active must be boolean')
-        values = {'name': channel.name, 'app_id': text(item, 'app_id', 100), 'is_active': item['is_active']}
+        app_id = text(item, 'app_id', 256 if is_onebot else 100)
+        if is_onebot:
+            from .onebot_upstream import native_id
+            from .onebot_common import OneBotError
+            try:
+                if str(native_id(app_id, 11 if item['interface_type'] == 'onebot_v11' else 12)) != app_id:
+                    raise ValidationError('Use canonical numeric Bot ID for OneBot 11')
+            except OneBotError:
+                raise ValidationError('Invalid OneBot Bot ID') from None
+        values = {'name': channel.name, 'app_id': app_id, 'is_active': item['is_active']}
         if item.get('secret'):
             values['secret'] = text(item, 'secret', 4096)
+            if is_onebot and (not values['secret'].isascii() or any(ord(c) <= 32 or ord(c) == 127 for c in values['secret'])):
+                raise ValidationError('OneBot access token must be a visible ASCII string')
         elif 'secret' in item and not isinstance(item['secret'], str):
             raise ValidationError('Invalid secret')
+        if 'clear_secret' in item:
+            if not is_onebot or type(item['clear_secret']) is not bool:
+                raise ValidationError('clear_secret is only supported for OneBot')
+            if item['clear_secret']:
+                values['secret'] = ''
         bot = channel.bots.first()
         if 'bot_id' in item and (type(item['bot_id']) is not int or not bot or item['bot_id'] != bot.pk):
             raise ValidationError('Bot does not belong to this channel')
         if bot:
-            bot, _ = update_bot(bot.pk, request.user, **values)
+            try:
+                bot, _ = update_bot(bot.pk, request.user, **values)
+            except ValueError:
+                raise ValidationError('AppID / Bot ID already exists') from None
             if transport_changed:
                 from django.db.models import F
                 from django.utils import timezone
-                from .models import ApiKey, GatewaySession
+                from .models import ApiKey, GatewaySession, OneBotUpstreamSession
                 BotGrant.objects.filter(bot=bot).update(revision=F('revision') + 1)
                 ApiKey.objects.filter(bot=bot, revoked_at__isnull=True).update(revoked_at=timezone.now())
                 GatewaySession.objects.filter(bot=bot).delete()
+                OneBotUpstreamSession.objects.filter(bot=bot).delete()
         else:
             if 'secret' not in values:
-                raise ValidationError('AppSecret required for a new Channel')
+                if is_onebot:
+                    values['secret'] = ''
+                else:
+                    raise ValidationError('AppSecret required for a new Channel')
             bot = Bot.objects.create(channel=channel, encrypted_secret=encrypt_secret(values.pop('secret')), **values)
         models = item['models']
         if not isinstance(models, list) or len(models) > 10000:

@@ -62,20 +62,39 @@ def official_json(response, *, empty=False):
 
 
 def identity(bot):
+    from .upstreams import onebot_version
+    if onebot_version(bot):
+        from .onebot_upstream import identity as upstream_identity
+        return upstream_identity(bot)
     data = official_json(get_self(bot))
     return {'platform': 'qq', 'user_id': identifier(data.get('id'))}, data.get('username', '')
 
 
 def resolve_id(bot, kind, value, version):
+    from .upstreams import onebot_version
+    if version == 11 and onebot_version(bot) == 11:
+        from .onebot_upstream import native_id
+        return str(native_id(value, 11, kind=kind))
     if version == 12:
+        if onebot_version(bot):
+            from .onebot_upstream import native_id
+            return native_id(value, 12)
         return identifier(value)
     try:
-        return identifier(original_id(bot, kind, value))
+        original = original_id(bot, kind, value)
+        if onebot_version(bot):
+            from .onebot_upstream import native_id
+            return native_id(original, 12)
+        return identifier(original)
     except ValueError:
         raise OneBotError(10003, 'Unknown or invalid virtual ID') from None
 
 
 def public_id(bot, kind, value, version):
+    from .upstreams import onebot_version
+    if version == 11 and onebot_version(bot) == 11:
+        from .onebot_upstream import native_id
+        return native_id(value, 11, kind=kind)
     return value if version == 12 else virtual_id(bot, kind, value)
 
 
@@ -144,7 +163,10 @@ def segments11(message, auto_escape=False):
 def message_record(bot, key, value, version):
     from django.db.models import Q
     mid = resolve_id(bot, 'message', value, version)
-    row = OneBotMessage.objects.filter(Q(message_id=mid) | Q(reference=mid), bot=bot).first()
+    from .upstreams import onebot_version
+    from .onebot_upstream import configuration_digest
+    digest = configuration_digest(bot) if onebot_version(bot) else ''
+    row = OneBotMessage.objects.filter(Q(message_id=mid) | Q(reference=mid), bot=bot, source_digest=digest).first()
     if row is None:
         raise OneBotError(35004, 'Message context unavailable')
     if key is not None:
@@ -262,6 +284,10 @@ def prepare_message(bot, key, scopes, message, direct, target, version):
 
 def invoke(bot, scopes, action, params, echo=None, *, key=None, version=11, self_info=None):
     try:
+        from .upstreams import onebot_version
+        if onebot_version(bot):
+            from .onebot_upstream_actions import invoke_upstream
+            return invoke_upstream(bot, scopes, action, params, echo, key, version, self_info)
         supported = (ACTIONS12 if version == 12 else ACTIONS11) | EXTENSIONS
         if not isinstance(action, str) or action not in supported:
             raise OneBotError(10002, 'Unsupported action: not available through QQ official API')
@@ -395,7 +421,7 @@ def dispatch(bot, scopes, action, params, key, version):
     ext = response.get('ext_info')
     reference = ext.get('ref_idx', '') if isinstance(ext, dict) else ''
     from .onebot_events import canonical_segments
-    OneBotMessage.objects.get_or_create(bot=bot, message_id=mid, defaults={
+    OneBotMessage.objects.get_or_create(bot=bot, source_digest='', message_id=mid, defaults={
         'is_direct': direct, 'target_id': target, 'segments': canonical_segments(bot, message, version),
         'conversation_type': 'private' if direct else 'group',
         'sent_at': now, 'reference': reference if isinstance(reference, str) else '',

@@ -82,6 +82,10 @@ def event_target(payload):
         return None
     data = payload['d']
     kind = payload.get('t')
+    if kind == 'ONEBOT_EVENT':
+        if data.get('target_type') not in {'private', 'group'}:
+            return None
+        return data['target_type'] == 'private', data['target_id']
     if kind == 'C2C_MESSAGE_CREATE':
         author = data.get('author', {})
         target = author.get('user_openid') if isinstance(author, dict) else None
@@ -116,7 +120,9 @@ def filter_events(rows, policy, prefix='event__'):
     return rows.filter(
         Q(**{payload + 't': 'C2C_MESSAGE_CREATE', payload + 'd__author__user_openid__in': direct})
         | Q(**{payload + 't__in': GROUP_EVENTS, payload + 'd__group_openid__in': groups})
-        | Q(**{payload + 't__in': DIRECT_EVENTS, payload + 'd__openid__in': direct}))
+        | Q(**{payload + 't__in': DIRECT_EVENTS, payload + 'd__openid__in': direct})
+        | Q(**{payload + 't': 'ONEBOT_EVENT', payload + 'd__target_type': 'private', payload + 'd__target_id__in': direct})
+        | Q(**{payload + 't': 'ONEBOT_EVENT', payload + 'd__target_type': 'group', payload + 'd__target_id__in': groups}))
 
 
 def discover(bot, payload):

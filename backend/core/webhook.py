@@ -16,7 +16,8 @@ class OfficialWebhook(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request, pk):
-        bot = get_object_or_404(Bot, pk=pk, is_active=True)
+        bot = get_object_or_404(Bot, pk=pk, is_active=True,
+                                channel__interface_type__in=['qq_official_websocket', 'qq_official_webhook'])
         if request.headers.get('X-Bot-Appid') != bot.app_id:
             return Response({'detail': 'AppID mismatch'}, status=403)
         raw = request.body

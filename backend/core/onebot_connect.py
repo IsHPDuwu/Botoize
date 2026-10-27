@@ -27,13 +27,13 @@ def connection_info(token, version):
         key, scopes = authorize(token)
         own, _ = identity(key.bot)
         if version == 11:
-            from .onebot_ids import virtual_id
-            self_id = virtual_id(key.bot, 'user', own['user_id'])
+            from .onebot import public_id
+            self_id = public_id(key.bot, 'user', own['user_id'], 11)
         else:
             self_id = own['user_id']
         cursor = EventOutbox.objects.filter(is_stream=True, grant__user_id=key.user_id,
                                            grant__bot_id=key.bot_id).order_by('-pk').values_list('pk', flat=True).first() or 0
-        return self_id, cursor, 'events:read' in scopes
+        return self_id, cursor, 'events:read' in scopes, own['platform']
     finally:
         close_old_connections()
 
@@ -46,31 +46,46 @@ def meta(protocol_version, self_id, kind, **data):
             **({'sub_type': 'connect'} if kind == 'connect' else {}), **data}
 
 
-def status_data(version, self_id, online=True):
+def status_data(version, self_id, online=True, platform='qq'):
     if version == 12:
-        return {'good': online, 'bots': [{'self': {'platform': 'qq', 'user_id': str(self_id)}, 'online': online}],
+        return {'good': online, 'bots': [{'self': {'platform': platform, 'user_id': str(self_id)}, 'online': online}],
                 'botoize.online_basis': 'identity_http'}
     return {'good': online, 'online': online, 'botoize.online_basis': 'identity_http'}
 
 
-def probe_status(token, version, self_id):
+def probe_status(token, version, self_id, platform='qq'):
     key, _ = authorize(token)
+    upstream_status = None
     try:
-        identity(key.bot)
+        own, _ = identity(key.bot)
+        platform = own['platform']
         online = True
+        from .upstreams import onebot_version
+        if onebot_version(key.bot):
+            from .onebot_upstream import call
+            raw = call(key.bot, 'get_status')
+            if not isinstance(raw, dict):
+                raise ValueError('Invalid OneBot status')
+            upstream_status = raw
+            online = (any(isinstance(row, dict) and row.get('self') == own and row.get('online') is True
+                          for row in raw.get('bots', [])) if onebot_version(key.bot) == 12 else raw.get('online') is True)
     except (OfficialCredentialError, OneBotError, ValueError, KeyError, TypeError):
         online = False
-    return status_data(version, self_id, online)
+    result = status_data(version, self_id, online, platform)
+    if upstream_status is not None:
+        result['good'] = upstream_status.get('good') is True
+        result['botoize.online_basis'] = 'upstream_status'
+    return result
 
 
 async def session(token, version, receive, emit, *, role='Universal', cursor_start=None, acknowledge=None, renew=None):
-    self_id, cursor, events = await sync_to_async(connection_info)(token, version)
+    self_id, cursor, events, platform = await sync_to_async(connection_info)(token, version)
     if cursor_start is not None:
         cursor = cursor_start
     await emit(meta(version, self_id, 'connect', **({'version': VERSION} if version == 12 else {})))
+    last_status = await sync_to_async(probe_status)(token, version, self_id, platform)
     if version == 12:
-        await emit(meta(version, self_id, 'status_update', status=status_data(version, self_id)))
-    last_status = status_data(version, self_id)
+        await emit(meta(version, self_id, 'status_update', status=last_status))
     incoming = asyncio.create_task(receive())
     heartbeat_at, errors = time.monotonic() + 30, 0
     try:
@@ -111,7 +126,7 @@ async def session(token, version, receive, emit, *, role='Universal', cursor_sta
                     if acknowledge is not None:
                         await sync_to_async(acknowledge)(cursor)
             if time.monotonic() >= heartbeat_at:
-                current_status = await sync_to_async(probe_status)(token, version, self_id)
+                current_status = await sync_to_async(probe_status)(token, version, self_id, platform)
                 if version == 12 and current_status != last_status:
                     await emit(meta(version, self_id, 'status_update', status=current_status))
                 last_status = current_status

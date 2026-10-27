@@ -10,7 +10,8 @@ from .models import ApiKey, AuditLog, Bot, BotGrant, OwnerLock, User
 
 from .official_routes import ROUTES
 
-SCOPES = frozenset(['events:read', 'messages:send', 'messages:delete', 'media:upload', 'query:read']) | frozenset(scope for _, _, scope in ROUTES)
+SCOPES = frozenset(['events:read', 'messages:send', 'messages:delete', 'media:upload', 'query:read',
+                    'friends:read', 'friends:write', 'friend-requests:write']) | frozenset(scope for _, _, scope in ROUTES)
 
 
 def validate_scopes(value):

@@ -1,6 +1,6 @@
 # Botoize OneBot 11 / 12
 
-核对日期：2026-10-25。下游适配 QQ 官机，不是 QQ 个人号协议，也不宣称拥有 QQ 未开放的权限。OneBot 上游仍仅预留。
+核对日期：2026-10-27。本页描述 QQ 官机的下游 OneBot 映射，不是 QQ 个人号协议，也不宣称拥有 QQ 未开放的权限。Provider 也支持 OneBot 11/12 上游，其配置、事件接收和独立能力范围见 [OneBot 上游](ONEBOT_UPSTREAM.md)。
 
 ## 连接
 

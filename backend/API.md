@@ -3,6 +3,8 @@
 本文描述授权接口；数据面以 `PROXY_SUPPORT.md`、`WEBHOOK_STATUS.md` 为准，
 部署入口见 `DEPLOYMENT.md`。已实现的有限代理能力不等于全量官方 API 兼容。
 
+Provider Channel 现支持 `qq_official_websocket`、`qq_official_webhook`、`onebot_v11`、`onebot_v12`。OneBot 上游的 `app_id` 是原始 Bot user_id，`secret` 是可选 Access Token；HTTP / 正向 WS 地址与独立事件密钥、动作范围见 [OneBot 上游接入](ONEBOT_UPSTREAM.md)。OneBot Channel 使用下游 OneBot 路由，`/qq/` 明确返回 501；原生 relay 事件仍可使用。
+
 ## 启动与配置
 
 Python 3.13 已验证。后端统一使用 uv：从 backend 工作目录运行

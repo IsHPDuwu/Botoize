@@ -84,8 +84,8 @@ def test_universal_live_revocation_closes_without_action():
         def revoked(token):
             if len(messages) > 1:
                 raise PermissionDenied()
-        with patch('core.onebot_connect.check_token', new=revoked), patch(
-                'core.onebot_connect.connection_info', new=lambda *args: ('self', 0, False)):
+        with patch('core.onebot_connect.check_token', new=revoked), patch('core.onebot_connect.probe_status', return_value={'good': True, 'bots': []}), patch(
+                'core.onebot_connect.connection_info', new=lambda *args: ('self', 0, False, 'qq')):
             await asyncio.wait_for(universal_socket({'path': '/onebot/v12/',
                 'headers': [(b'authorization', b'Bearer key')], 'query_string': b''}, queue.get, send), 3)
         assert messages[-1] == {'type': 'websocket.close', 'code': 4403}
@@ -119,7 +119,7 @@ def test_reverse_ws_headers_dns_pin_and_resume_cursor(version):
             calls.append(kwargs)
         with patch('core.onebot_reverse.reverse_destination', return_value=urlsplit('https://example.com/ws')), patch(
             'core.onebot_reverse.resolve_public', new=lambda host: '1.1.1.1'), patch(
-            'core.onebot_reverse.connection_info', new=lambda *args: ('self' if version == 12 else 123, 999, True)), patch(
+            'core.onebot_reverse.connection_info', new=lambda *args: ('self' if version == 12 else 123, 999, True, 'qq')), patch(
             'core.onebot_reverse.socket.create_connection', return_value=raw), patch(
             'core.onebot_reverse.connect', return_value=context) as connection, patch('core.onebot_reverse.session', new=fake_session):
             await reverse_session(peer, 'local-key', 'wss://example.com/ws', version, 'remote-token')

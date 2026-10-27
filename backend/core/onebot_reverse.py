@@ -91,7 +91,7 @@ def quick_operations(token, event, response, version):
 
 def webhook_batch(peer, token, url, version, remote_token='', secret=''):
     renew_peer(peer, token)
-    self_id, _, _ = connection_info(token, version)
+    self_id, _, _, _ = connection_info(token, version)
     page = read_onebot_page(token, peer.cursor, self_id, version=version)
     delivered, rejected = 0, 0
     for row in page:
@@ -110,7 +110,7 @@ def webhook_batch(peer, token, url, version, remote_token='', secret=''):
 async def reverse_session(peer, token, url, version, remote_token=''):
     target = reverse_destination(url)
     address = await sync_to_async(resolve_public)(target.hostname)
-    self_id, _, _ = await sync_to_async(connection_info)(token, version)
+    self_id, _, _, _ = await sync_to_async(connection_info)(token, version)
     headers = {}
     if remote_token:
         headers['Authorization'] = 'Bearer ' + remote_token

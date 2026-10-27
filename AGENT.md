@@ -8,7 +8,7 @@
 
 上游资源采用 Provider → Channel → Models 层级：Provider 是服务提供商，每个 Channel 只对应一个 Bot；Models 是该 Bot 下的会话。isDirect=true 使用 userid，false 使用 groupid。后端 Bot 仅作为执行和授权实体，不能再把 Bot 当 Model。
 
-Channel 配置接口类型、base_url、AppID/AppSecret，不保留冗余平台字段；已保存 Channel 可切换 QQ 官方 WebSocket / Webhook。OneBot 上游仅预留，下游适配独立。
+Channel 配置接口类型、base_url、AppID/AppSecret，不保留冗余平台字段；已保存 Channel 可切换 QQ 官方 WebSocket / Webhook。OneBot 11/12 上游已实现独立 HTTP/正向 WS 调用、事件 WS worker 与鉴权 HTTP 上报；配置和范围见 backend/ONEBOT_UPSTREAM.md，下游适配独立。
 
 会话通过已验签事件发现或历史事件回填；QQ 无法枚举未知群/用户，不伪造同步。Key 权限必须是当前用户授权的子集；全部 HTTP、WS、回调和 replay 统一检查会话。无法识别会话归属的操作对受限凭据拒绝。非登录操作不要求再次输入密码，保留 Session/CSRF/角色/归属校验。
 

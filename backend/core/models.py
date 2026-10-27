@@ -34,6 +34,7 @@ class Channel(models.Model):
     name = models.CharField(max_length=120)
     base_url = models.URLField(max_length=2048, default='https://api.bot.qq.com')
     interface_type = models.CharField(max_length=40, default='qq_official_websocket')
+    encrypted_event_secret = models.TextField(blank=True)
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=['provider', 'name'], name='unique_provider_channel_name')]
@@ -58,7 +59,7 @@ def new_bot_channel_id():
 class Bot(models.Model):
     channel = models.ForeignKey(Channel, on_delete=models.PROTECT, related_name='bots', default=new_bot_channel_id)
     name = models.CharField(max_length=120)
-    app_id = models.CharField(max_length=100, unique=True)
+    app_id = models.CharField(max_length=256, unique=True)
     encrypted_secret = models.TextField()
     is_active = models.BooleanField(default=True)
 
@@ -266,6 +267,7 @@ class QuotaUsage(models.Model):
 
 class OneBotMessage(models.Model):
     bot = models.ForeignKey(Bot, on_delete=models.CASCADE)
+    source_digest = models.CharField(max_length=64, blank=True)
     message_id = models.CharField(max_length=256)
     is_direct = models.BooleanField()
     target_id = models.CharField(max_length=256)
@@ -279,10 +281,10 @@ class OneBotMessage(models.Model):
     source_event = models.ForeignKey(Event, null=True, on_delete=models.CASCADE)
     created_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL)
     conversation_type = models.CharField(max_length=16, blank=True)
-    guild_id = models.CharField(max_length=128, blank=True)
+    guild_id = models.CharField(max_length=256, blank=True)
 
     class Meta:
-        constraints = [models.UniqueConstraint(fields=['bot', 'message_id'], name='onebot_message_unique')]
+        constraints = [models.UniqueConstraint(fields=['bot', 'source_digest', 'message_id'], name='onebot_message_source_unique')]
 
 
 class OneBotFile(models.Model):
@@ -300,6 +302,17 @@ class OneBotFile(models.Model):
     target_id = models.CharField(max_length=256, blank=True)
     ranges = models.JSONField(default=list)
     conversation_type = models.CharField(max_length=16, blank=True)
+    upstream_file_id = models.CharField(max_length=512, blank=True)
+
+
+class OneBotUpstreamSession(models.Model):
+    bot = models.OneToOneField(Bot, on_delete=models.CASCADE)
+    credential_digest = models.CharField(max_length=64, blank=True)
+    lease_token = models.UUIDField(null=True)
+    lease_until = models.DateTimeField(null=True)
+    connected = models.BooleanField(default=False)
+    self_platform = models.CharField(max_length=64, blank=True)
+    last_event_at = models.DateTimeField(null=True)
 
 
 class OneBotPollCursor(models.Model):

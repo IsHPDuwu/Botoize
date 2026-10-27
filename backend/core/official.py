@@ -150,6 +150,9 @@ def validate_multipart(content_type):
 
 
 def _request(bot, method, path, query='', body=None, *, content_type=None):
+    from .upstreams import onebot_version
+    if onebot_version(bot):
+        raise OfficialCredentialError('This Channel uses OneBot, not QQ official HTTP')
     url = base_url(bot) + '/' + path
     if query:
         url += '?' + query

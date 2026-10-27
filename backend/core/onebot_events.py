@@ -144,6 +144,9 @@ def parsed_message(payload):
 
 
 def remember_message(bot, payload):
+    if payload.get('t') == 'ONEBOT_EVENT':
+        from .onebot_upstream_events import canonical_message
+        return canonical_message(bot, payload)
     parsed = parsed_message(payload)
     if not parsed:
         return None
@@ -155,7 +158,7 @@ def remember_message(bot, payload):
     ext = scene.get('ext', []) if isinstance(scene, dict) else []
     if isinstance(ext, list):
         ref = next((s.split('=', 1)[1] for s in ext if isinstance(s, str) and s.startswith('msg_idx=')), ref)
-    return OneBotMessage.objects.get_or_create(bot=bot, message_id=mid, defaults={
+    return OneBotMessage.objects.get_or_create(bot=bot, source_digest='', message_id=mid, defaults={
         'is_direct': direct, 'target_id': target, 'sender_id': user, 'segments': segments,
         'sent_at': sent_at, 'incoming': True, 'reference': ref if isinstance(ref, str) else '',
         'conversation_type': 'channel' if guild else 'private' if direct else 'group', 'guild_id': guild,
@@ -166,7 +169,7 @@ def visible_segments(row, key):
     segments = copy.deepcopy(row.segments)
     for index, segment in enumerate(segments):
         data = segment['data']
-        if 'qq.url' not in data:
+        if 'qq.url' not in data and 'botoize.upstream_file_id' not in data:
             continue
         if key is None:
             return None
@@ -178,7 +181,8 @@ def visible_segments(row, key):
             continue
         name = str(data.get('qq.name', 'attachment'))[:255].replace('/', '_').replace('\\', '_')
         file, _ = OneBotFile.objects.get_or_create(pk=file_id, defaults={
-            'api_key': key, 'name': name, 'url': data['qq.url'], 'complete': True,
+            'api_key': key, 'name': name, 'url': data.get('qq.url', ''), 'complete': True,
+            'upstream_file_id': data.get('botoize.upstream_file_id', ''),
             'expires_at': timezone.now() + timedelta(hours=24), 'is_direct': row.is_direct, 'target_id': row.target_id,
             'conversation_type': row.conversation_type,
         })
@@ -239,6 +243,9 @@ def notice_event(bot, payload, self_id, version, received_at=None):
 
 
 def message_event(bot, payload, self_id, version=11, key=None, received_at=None):
+    if isinstance(payload, dict) and payload.get('t') == 'ONEBOT_EVENT':
+        from .onebot_upstream_events import downstream_event
+        return downstream_event(bot, payload, self_id, version, key)
     row = remember_message(bot, payload)
     if row is None:
         if (not isinstance(payload, dict) or payload.get('op') != 0

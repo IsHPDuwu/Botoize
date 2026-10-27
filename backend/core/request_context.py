@@ -15,9 +15,10 @@ def audit_path(request, match):
     path = (getattr(match, 'kwargs', None) or {}).get('path', '')
     if request.path.startswith('/onebot/'):
         from .onebot import ACTIONS11, ACTIONS12, EXTENSIONS
+        from .onebot_upstream_actions import RULES
         action = getattr(request, 'onebot_action', path.rstrip('/'))
         prefix = '/onebot/v12/' if request.path.startswith('/onebot/v12') else '/onebot/'
-        return prefix + (action if action in ACTIONS11 | ACTIONS12 | EXTENSIONS else '<unsupported>')
+        return prefix + (action if action in ACTIONS11 | ACTIONS12 | EXTENSIONS | set(RULES) else '<unsupported>')
     if request.path.startswith('/qq/'):
         templates = ['users/@me', 'users/@me/dms']
         for kind, identifier in [('v2/users', 'user_id'), ('v2/groups', 'group_id'),

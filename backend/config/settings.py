@@ -13,6 +13,8 @@ ALLOWED_HOSTS = os.environ.get('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1').sp
 # Explicit operator proxy, restricted to QQ's official HTTP origin and Gateway.
 QQ_HTTP_PROXY = os.environ.get('QQ_HTTP_PROXY', '') or None
 QQ_GATEWAY_HOST = os.environ.get('QQ_GATEWAY_HOST', '') or None
+# Owner-configured OneBot services commonly run on the same machine/LAN.
+ONEBOT_UPSTREAM_ALLOW_PRIVATE = os.environ.get('ONEBOT_UPSTREAM_ALLOW_PRIVATE', '1' if DEBUG else '0') == '1'
 INSTALLED_APPS = ['django.contrib.auth', 'django.contrib.contenttypes', 'django.contrib.sessions', 'rest_framework', 'core']
 MIDDLEWARE = ['django.middleware.security.SecurityMiddleware', 'django.contrib.sessions.middleware.SessionMiddleware', 'django.middleware.common.CommonMiddleware', 'core.middleware.RequestIdMiddleware', 'django.middleware.csrf.CsrfViewMiddleware', 'django.contrib.auth.middleware.AuthenticationMiddleware']
 ROOT_URLCONF = 'config.urls'

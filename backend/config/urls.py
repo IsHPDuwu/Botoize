@@ -4,11 +4,13 @@ from core.webhook import OfficialWebhook
 from core.openapi import openapi_schema
 from core.providers import Providers, UpstreamInterfaces, CopyToken, SyncConversations, ScopeCatalog
 from core.onebot_http import OneBot12HTTP
+from core.onebot_upstream_webhook import OneBotUpstreamWebhook
 
 urlpatterns = [
     path('api/v1/openapi.json', openapi_schema),
     path('health/', views.Health.as_view()),
     path('webhooks/qq/<int:pk>/', OfficialWebhook.as_view()),
+    path('webhooks/onebot/<int:pk>/', OneBotUpstreamWebhook.as_view()),
     path('api/v1/auth/<str:action>/', views.Auth.as_view()),
     path('api/v1/bots/', views.Bots.as_view()),
     path('api/v1/providers/', Providers.as_view()),

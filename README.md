@@ -1,6 +1,8 @@
 # Botoize
 QQ 官方机器人中转平台
 
+Provider 也支持 OneBot 11 / 12 上游：HTTP / 正向 WS 调用、WS 事件接收和鉴权 HTTP 上报。配置步骤、worker 命令及版本边界见 [OneBot 上游接入](backend/ONEBOT_UPSTREAM.md)。
+
 ## 本地启动（Windows PowerShell）
 
 后端使用 Python 3.13 + uv，前端使用 pnpm。若已激活仓库根 `.venv`，先运行

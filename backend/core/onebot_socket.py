@@ -45,9 +45,10 @@ def call_action(token, envelope, version=11):
             raise
         finally:
             from .onebot import ACTIONS11, ACTIONS12, EXTENSIONS
+            from .onebot_upstream_actions import RULES
             from .request_context import onebot_message_type
             action = envelope.get('action')
-            action = action if isinstance(action, str) and action in ACTIONS11 | ACTIONS12 | EXTENSIONS else '<unsupported>'
+            action = action if isinstance(action, str) and action in ACTIONS11 | ACTIONS12 | EXTENSIONS | set(RULES) else '<unsupported>'
             ApiCallAudit.objects.create(
                 api_key=key, user=key.user, bot=key.bot, request_id=uuid.uuid4().hex,
                 bot_name=key.bot.name, username=key.user.username, key_name=key.name,

@@ -42,14 +42,14 @@ def test_provider_roundtrip_and_identity(client):
     assert client.patch(f'/api/v1/providers/{data["id"]}/', update, format='json').status_code == 200
 
 
-def test_reserved_interface_and_atomic_rollback(client):
+def test_invalid_onebot_and_atomic_rollback(client):
     data = payload()
     data['channels'][0].update(interface_type='onebot_v11')
     assert client.post('/api/v1/providers/', data, format='json').status_code == 400
     assert not Provider.objects.filter(name='生产').exists()
     assert not Bot.objects.exists()
     types = client.get('/api/v1/upstream-interfaces/').json()
-    assert any(item['interface_type'] == 'onebot_v11' and not item['implemented'] for item in types)
+    assert all(item['implemented'] for item in types)
 
 
 def test_admin_only_sees_granted_models(client):

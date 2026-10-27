@@ -125,6 +125,15 @@ def create_file(key, name, data=b'', *, url='', complete=True, total_size=None, 
 
 @transaction.atomic
 def file_bytes(row):
+    if row.upstream_file_id:
+        from .onebot_upstream_actions import download_upstream_file
+        data = download_upstream_file(row)
+        ApiKey.objects.select_for_update().get(pk=row.api_key_id)
+        total = OneBotFile.objects.filter(api_key_id=row.api_key_id).aggregate(total=Sum('total_size'))['total'] or 0
+        if len(data) > MAX_FILE or total - row.total_size + len(data) > MAX_TOTAL:
+            raise OneBotError(35029, 'File storage limit exceeded')
+        row.data, row.upstream_file_id, row.total_size, row.sha256 = data, '', len(data), checksum(data)
+        row.save(update_fields=['data', 'upstream_file_id', 'total_size', 'sha256'])
     if row.url:
         ApiKey.objects.select_for_update().get(pk=row.api_key_id)
         data = download(row.url)

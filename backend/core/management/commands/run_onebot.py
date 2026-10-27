@@ -55,7 +55,7 @@ class Command(BaseCommand):
                 try:
                     renew_peer(peer, token)
                     if status_pending:
-                        self_id, _, _ = connection_info(token, version)
+                        self_id, _, _, _ = connection_info(token, version)
                         event = meta(version, self_id, 'status_update', status=status_data(version, self_id))
                         response = post_webhook(url, event, version, remote_token)
                         status_pending = False

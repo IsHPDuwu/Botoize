@@ -280,7 +280,7 @@ def test_universal_v12_connect_action_error_and_disconnect():
             queue.put_nowait(frame)
         async def send(message):
             messages.append(message)
-        with patch('core.onebot_connect.check_token', new=lambda token: None), patch('core.onebot_connect.connection_info', new=lambda token, version: ('self', 0, False)), patch(
+        with patch('core.onebot_connect.check_token', new=lambda token: None), patch('core.onebot_connect.probe_status', return_value={'good': True, 'bots': []}), patch('core.onebot_connect.connection_info', new=lambda token, version: ('self', 0, False, 'qq')), patch(
                 'core.onebot_connect.call_action', return_value={'status': 'ok', 'retcode': 0, 'data': {}, 'echo': 'e'}):
             await universal_socket({'path': '/onebot/v12/', 'headers': [(b'authorization', b'Bearer test')], 'query_string': b''}, queue.get, send)
         payloads = [json.loads(m['text']) for m in messages if m['type'] == 'websocket.send']

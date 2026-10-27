@@ -24,6 +24,12 @@ Gateway 与 Webhook 同时启用时仅按官方 event ID 去重；不得假设�
 
 ## HTTP 事件回调
 
+### OneBot 上游独立进程
+
+Provider 的 OneBot 11/12 Channel 使用 `uv run --locked python manage.py run_onebot_upstream --bot BOT_ID` 接收正向 WS 事件；也可配置独立 `event_secret` 后使用 `/webhooks/onebot/BOT_ID/` HTTP 上报。与下游 `run_onebot` worker、官方 `run_gateway` 各自独立。生产内网 / 明文 endpoint 需要显式 `ONEBOT_UPSTREAM_ALLOW_PRIVATE=1`；默认仅允许公网 TLS。配置、标准鉴权和断线边界见 [OneBot 上游](ONEBOT_UPSTREAM.md)。
+
+### 下游订阅投递
+
 - 在页面「订阅端点」选择具有 events:read 的 Bot，输入 HTTPS 地址与回调密钥；非登录操作不再次要求密码。也可用 `subscription set GRANT_ID URL` 控制台命令配置。
 - URL 配置允许域名，但真正发送时解析所有地址，只允许公共可路由 IP；混合公私地址也拒绝。连接固定到验证过的 IP，TLS 按原域名校验证书，不跟随重定向，也不读取环境代理。
 - 回调正文为紧凑 UTF-8 JSON，`X-QQ-Proxy-Delivery-ID` 是稳定 Outbox ID；`X-QQ-Proxy-Timestamp` 为 Unix 秒，`X-QQ-Proxy-Signature` 格式为 `v1=<hex>`，计算规则为 `HMAC-SHA256(secret, timestamp + "." + delivery_id + "." + exact_body_bytes)`。密钥加密保存且不回传；通过 API 的 callback_secret 配置接收端已知的 32–256 字符密钥。普通保存保留旧密钥，只有显式传新密钥才轮换；首次省略则随机生成，但接收端无法取得该随机值，实际验签应显式配置。仅在持久化去重与可靠接受后返回 2xx。此签名为平台协议，不是 OneBot HTTP POST 签名。
@@ -33,7 +39,7 @@ Gateway 与 Webhook 同时启用时仅按官方 event ID 去重；不得假设�
 
 ## 升级、备份与开发验收
 
-- 当前迁移至 0028：0022–0023 为多回调和名称快照；0024–0028 为 OneBot 消息上下文、Key 文件/分片、轮询游标、反向目标租约和频道归属。升级仍需先备份数据库和加密密钥，migrate 完成后重启 API、Gateway 与投递 worker，防止旧进程继续使用旧模型。无待迁移时可重复执行。
+- 当前迁移至 0031：0022–0023 为多回调和名称快照；0024–0028 为 OneBot 消息上下文、Key 文件/分片、轮询游标、反向目标租约和频道归属；0029–0031 为 OneBot 上游事件密钥/文件句柄/worker 租约、消息来源隔离和字符串 Bot/频道 ID。升级仍需先备份数据库和加密密钥，migrate 完成后重启 API、Gateway、OneBot 与投递 worker，防止旧进程继续使用旧模型。无待迁移时可重复执行。
 
 - 升级前备份数据库与独立保存的 BOT_ENCRYPTION_KEY；先在备份副本演练 migrate。0019 保留旧 Bot ID 和授权，将旧共享 Channel 拆为一 Bot 一 Channel；0020 修复旧创建流程的默认 Channel 隔离；0021 添加 API 审计消息类型和重放标记，历史行保留且重放状态未知。
 - 新 Key 按产品要求在数据库明文保存原 token，只有摘要的历史 token 无法恢复。限制数据库、备份与日志访问；备份介质应加密，撤销泄露凭据。不要将 .env、config.txt、SECRET.txt 提交或放入前端资源。

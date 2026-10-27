@@ -1,4 +1,4 @@
-"""Upstream adapter catalogue. Reserved protocols are never operational."""
+"""Configured upstream protocols and URL validation."""
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 import ipaddress
@@ -14,8 +14,39 @@ class UpstreamInterface:
 INTERFACES = (
     UpstreamInterface('qq_official_websocket', 'QQ 官方机器人 WebSocket', True),
     UpstreamInterface('qq_official_webhook', 'QQ 官方机器人 Webhook', True),
-    UpstreamInterface('onebot_v11', 'OneBot 11（预留，暂未实现）', False),
+    UpstreamInterface('onebot_v11', 'OneBot 11', True),
+    UpstreamInterface('onebot_v12', 'OneBot 12', True),
 )
+
+
+def onebot_version(bot):
+    kind = getattr(getattr(bot, 'channel', None), 'interface_type', '')
+    return {'onebot_v11': 11, 'onebot_v12': 12}.get(kind)
+
+
+def validate_onebot_url(value):
+    from django.conf import settings
+    if (not isinstance(value, str) or not value or len(value) > 2048 or '\\' in value
+            or any(ord(c) <= 32 or ord(c) == 127 for c in value)):
+        raise ValueError('Invalid OneBot endpoint')
+    try:
+        target = urlsplit(value)
+        if (target.scheme not in {'http', 'https', 'ws', 'wss'} or not target.hostname
+                or target.username is not None or target.password is not None or target.query or target.fragment
+                or target.port == 0 or '%' in target.path or any(p in {'.', '..'} for p in target.path.split('/'))):
+            raise ValueError
+        if target.scheme in {'http', 'ws'} and not settings.ONEBOT_UPSTREAM_ALLOW_PRIVATE:
+            raise ValueError('Plaintext OneBot endpoints require ONEBOT_UPSTREAM_ALLOW_PRIVATE=1')
+        if not settings.ONEBOT_UPSTREAM_ALLOW_PRIVATE:
+            try:
+                address = ipaddress.ip_address(target.hostname)
+            except ValueError:
+                address = None
+            if (address and not address.is_global) or target.hostname.lower() == 'localhost' or target.hostname.lower().endswith('.localhost'):
+                raise ValueError
+    except (ValueError, UnicodeError):
+        raise ValueError('Invalid or disallowed OneBot endpoint') from None
+    return value.rstrip('/')
 
 
 def validate_base_url(value):

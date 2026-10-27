@@ -451,7 +451,7 @@ class DashboardOverview(ManagementView):
             'generated_at': now,
             'bot_count': bots.distinct().count(),
             'active_bot_count': bots.filter(is_active=True).distinct().count(),
-            'gateway_worker_count': sum(row['worker_lease_live'] and row['enabled'] for row in channels),
+            'gateway_worker_count': sum(row['worker_lease_live'] and row['enabled'] and row['interface_type'] == 'qq_official_websocket' for row in channels),
             'api_call_count': calls.count(),
             'api_success_count': calls.filter(status_code__gte=200, status_code__lt=300).count(),
             'api_error_count': calls.filter(status_code__gte=400).count(),
@@ -618,6 +618,15 @@ class Capabilities(APIView):
         from .conversations import unrestricted
         from .official_routes import OPERATIONS
         broad = unrestricted(request.auth)
+        from .upstreams import onebot_version
+        upstream_version = onebot_version(request.auth.bot)
+        if upstream_version:
+            from .onebot_upstream_actions import available_actions
+            return Response({'bot_id': request.auth.bot_id, 'scopes': request.effective_scopes,
+                'proxy_enabled': False, 'websocket_enabled': 'events:read' in request.effective_scopes,
+                'operations': [], 'upstream_version': upstream_version,
+                'onebot_actions': {str(v): sorted(available_actions(upstream_version, v)) for v in (11, 12)},
+                **policy_data(request.auth), 'unrestricted_conversations': broad}, headers={'Cache-Control': 'no-store'})
         operations = ['GET /users/@me'] if 'query:read' in request.effective_scopes else []
         if 'messages:send' in request.effective_scopes:
             operations += ['POST /v2/users/{user_openid}/messages', 'POST /v2/groups/{group_openid}/messages']
@@ -777,6 +786,12 @@ class Proxy(DataPlaneAuditMixin, Capabilities):
         from .conversations import check_conversation, unrestricted
         from .models import BotGrant
         path = kwargs.get('path', '')
+        from .upstreams import onebot_version
+        if request.path.startswith('/qq/') and onebot_version(request.auth.bot):
+            from rest_framework.exceptions import APIException
+            error = APIException('QQ HTTP routes are unavailable for a OneBot Channel; use its OneBot endpoint')
+            error.status_code = 501
+            raise error
         match = re.match(r'^v2/(users|groups)/([A-Za-z0-9_-]{1,128})(?:/|$)', path)
         if request.path.startswith('/qq/') and match:
             check_conversation(request.auth, match[1] == 'users', match[2])

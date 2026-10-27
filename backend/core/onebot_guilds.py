@@ -183,7 +183,7 @@ def send_channel(bot, key, scopes, params):
     else:
         response = official_json(send_message(bot, f'channels/{channel}/messages', json.dumps(payload).encode()))
     mid, now = identifier(response['id']), time.time()
-    OneBotMessage.objects.get_or_create(bot=bot, message_id=mid, defaults={
+    OneBotMessage.objects.get_or_create(bot=bot, source_digest='', message_id=mid, defaults={
         'conversation_type': 'channel', 'guild_id': guild, 'is_direct': False, 'target_id': channel,
         'sent_at': now, 'segments': message, 'created_by': key.user if key else None,
     })

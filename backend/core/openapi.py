@@ -141,8 +141,12 @@ def schema():
     policy = {'all_conversations': BOOLEAN, 'conversations': {'type': 'array', 'items': INTEGER, 'uniqueItems': True}}
     conversation = object_schema({'id': INTEGER, 'name': STRING, 'isDirect': BOOLEAN, 'userid': STRING, 'groupid': STRING}, ['name', 'isDirect'])
     channel = object_schema({'id': INTEGER, 'bot_id': INTEGER, 'name': STRING, 'base_url': {'type': 'string', 'format': 'uri'},
-                             'interface_type': {'type': 'string', 'enum': ['qq_official_websocket', 'qq_official_webhook']},
-                             'app_id': STRING, 'secret': PASSWORD, 'is_active': BOOLEAN,
+                             'interface_type': {'type': 'string', 'enum': ['qq_official_websocket', 'qq_official_webhook', 'onebot_v11', 'onebot_v12']},
+                             'app_id': {**STRING, 'description': 'QQ AppID or exact OneBot Bot user_id (11 numeric, 12 string)'},
+                             'secret': {**PASSWORD, 'description': 'QQ AppSecret or OneBot Access Token; omit/blank on edit to retain'},
+                             'clear_secret': {**BOOLEAN, 'description': 'OneBot only: explicitly clear Access Token'},
+                             'event_secret': {**PASSWORD, 'description': 'OneBot HTTP event secret: omit to retain, empty to disable'},
+                             'event_reporting_enabled': {**BOOLEAN, 'readOnly': True}, 'is_active': BOOLEAN,
                              'models': {'type': 'array', 'items': conversation}}, ['name', 'interface_type', 'app_id', 'is_active', 'models'])
     provider_input = {'name': STRING, 'channels': {'type': 'array', 'items': channel, 'minItems': 1, 'maxItems': 100}}
     add('/api/v1/providers/', 'get', 'listProviders')
@@ -199,7 +203,7 @@ def schema():
                            'is_active': BOOLEAN, 'revision': INTEGER, 'parent_id': {'type': ['integer', 'null']},
                            'models': array(ref('Conversation')), **policy})
     provider = object_schema({'id': INTEGER, **deepcopy(provider_input)})
-    provider['properties']['channels']['items'] = {**channel, 'properties': {k: v for k, v in channel['properties'].items() if k != 'secret'}}
+    provider['properties']['channels']['items'] = {**channel, 'properties': {k: v for k, v in channel['properties'].items() if k not in {'secret', 'event_secret', 'clear_secret'}}}
     schemas = {
         'Bot': bot, 'Conversation': conversation, 'Provider': provider, 'Key': key, 'Grant': grant,
         'IssuedKey': {**key, 'properties': {**key['properties'], 'token': STRING, 'rotated_key': INTEGER}},
@@ -210,7 +214,7 @@ def schema():
         'Interface': object_schema({'interface_type': STRING, 'label': STRING, 'implemented': BOOLEAN}),
         'Attempt': object_schema({'id': INTEGER, 'generation': INTEGER, 'attempt_number': INTEGER, 'state': STRING, 'http_status': {'type': ['integer', 'null']}, 'error_code': STRING, 'started_at': DATE, 'finished_at': DATE}),
         'ApiCall': object_schema({'id': INTEGER, 'request_id': STRING, 'bot': {'type': ['integer', 'null']}, 'api_key': {'type': ['integer', 'null']}, 'bot_name': STRING, 'username': STRING, 'key_name': STRING, 'method': STRING, 'path': STRING, 'message_type': STRING, 'replayed': {'type': ['boolean', 'null']}, 'status_code': INTEGER, 'duration_ms': {'type': 'integer'}, 'created_at': DATE}),
-        'ChannelStatus': object_schema({'bot': INTEGER, 'name': STRING, 'channel': INTEGER, 'channel_name': STRING, 'provider_name': STRING, 'interface_type': STRING, 'enabled': BOOLEAN, 'worker_lease_live': BOOLEAN, 'session_recorded': BOOLEAN, 'lease_until': DATE, 'last_call_at': DATE, 'last_http_status': {'type': ['integer', 'null']}}),
+        'ChannelStatus': object_schema({'bot': INTEGER, 'name': STRING, 'channel': INTEGER, 'channel_name': STRING, 'provider_name': STRING, 'interface_type': STRING, 'enabled': BOOLEAN, 'worker_lease_live': BOOLEAN, 'session_recorded': BOOLEAN, 'upstream_connected': BOOLEAN, 'lease_until': DATE, 'last_call_at': DATE, 'last_http_status': {'type': ['integer', 'null']}}),
         'Invitation': object_schema({'id': INTEGER, 'expires_at': DATE, 'used_at': DATE, 'accepted_by': {'type': ['integer', 'null']}, 'created_at': DATE}),
         'Quota': object_schema({'id': INTEGER, 'scope': STRING, 'subject_id': {'type': 'integer'}, 'window_seconds': INTEGER, 'limit': {'type': 'integer'}, 'is_active': BOOLEAN, 'used': {'type': 'integer'}, 'resets_at': {'type': 'integer'}}),
         'OfficialResponse': {'description': 'QQ-owned raw JSON response; no normalization or guarantee of upstream success.', 'type': ['object', 'array', 'string', 'number', 'boolean', 'null'], 'additionalProperties': True},
@@ -232,7 +236,9 @@ def schema():
     for name, field, model in [('Events', 'events', 'Event'), ('Deliveries', 'deliveries', 'Delivery'), ('ApiCalls', 'calls', 'ApiCall')]:
         responses['list' + name] = object_schema({field: array(ref(model)), 'has_more': BOOLEAN, 'next_before': {'type': ['string', 'null']}})
     responses['relayEvents'] = object_schema({'events': array(object_schema({'cursor': STRING, 'payload': {'type': 'object', 'additionalProperties': True}, 'received_at': DATE})), 'next_cursor': STRING, 'has_more': BOOLEAN})
-    responses['relayCapabilities'] = object_schema({'bot_id': INTEGER, 'scopes': SCOPES, 'proxy_enabled': BOOLEAN, 'websocket_enabled': BOOLEAN, 'operations': array(STRING), 'unrestricted_conversations': BOOLEAN, **policy})
+    responses['relayCapabilities'] = object_schema({'bot_id': INTEGER, 'scopes': SCOPES, 'proxy_enabled': BOOLEAN, 'websocket_enabled': BOOLEAN, 'operations': array(STRING), 'unrestricted_conversations': BOOLEAN,
+        'upstream_version': {'type': 'integer', 'enum': [11, 12]},
+        'onebot_actions': object_schema({'11': array(STRING), '12': array(STRING)}), **policy})
     responses['dashboardOverview'] = object_schema({**{name: {'type': 'integer'} for name in ['window_hours', 'bot_count', 'active_bot_count', 'gateway_worker_count', 'api_call_count', 'api_success_count', 'api_error_count', 'event_count', 'delivery_count', 'delivered_count', 'pending_count', 'processing_count', 'failed_count', 'cancelled_count']}, 'window_start': DATE, 'generated_at': DATE, 'channels': array(ref('ChannelStatus'))})
     for methods in paths.values():
         for op in methods.values():

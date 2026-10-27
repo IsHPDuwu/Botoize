@@ -14,20 +14,26 @@ from .conversations import filter_events, key_grant
 
 
 def onebot_identity(token, version=11):
+    from .onebot_common import OneBotError
     from .official import get_self, OfficialCredentialError
     from .onebot_ids import virtual_id
     from rest_framework.exceptions import PermissionDenied
     close_old_connections()
     try:
         key, _ = authorize(token, scope='events:read')
-        status, body, _ = get_self(key.bot)
-        if status != 200:
-            raise ValueError('Upstream identity unavailable')
-        raw_id = json.loads(body)['id']
-        identity = raw_id if version == 12 else virtual_id(key.bot, 'user', raw_id)
+        from .upstreams import onebot_version
+        if onebot_version(key.bot):
+            from .onebot import identity as bot_identity, public_id
+            identity = public_id(key.bot, 'user', bot_identity(key.bot)[0]['user_id'], version)
+        else:
+            status, body, _ = get_self(key.bot)
+            if status != 200:
+                raise ValueError('Upstream identity unavailable')
+            raw_id = json.loads(body)['id']
+            identity = raw_id if version == 12 else virtual_id(key.bot, 'user', raw_id)
         cursor = EventOutbox.objects.filter(is_stream=True, grant__user_id=key.user_id, grant__bot_id=key.bot_id).order_by('-pk').values_list('pk', flat=True).first() or 0
         return identity, cursor
-    except (OfficialCredentialError, ValueError, TypeError, KeyError) as exc:
+    except (OfficialCredentialError, OneBotError, ValueError, TypeError, KeyError) as exc:
         raise PermissionDenied('Upstream identity unavailable') from exc
     finally:
         close_old_connections()
