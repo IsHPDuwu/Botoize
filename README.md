@@ -3,6 +3,8 @@ QQ 官方机器人中转平台
 
 Provider 也支持 OneBot 11 / 12 上游：HTTP / 正向 WS 调用、WS 事件接收和鉴权 HTTP 上报。配置步骤、worker 命令及版本边界见 [OneBot 上游接入](backend/ONEBOT_UPSTREAM.md)。
 
+Channel 支持官机与其他 Provider 的 OneBot 从机协作，逐条接收回退、群匹配、真实 ID 持久升级和 Markdown 优先发送。配置与维护命令见 [主从协作](backend/COMPANIONS.md)。
+
 ## 本地启动（Windows PowerShell）
 
 后端使用 Python 3.13 + uv，前端使用 pnpm。若已激活仓库根 `.venv`，先运行
@@ -37,4 +39,4 @@ Provider 也支持 OneBot 11 / 12 上游：HTTP / 正向 WS 调用、WS 事件�
 [Webhook 与事件](backend/WEBHOOK_STATUS.md) 和 [部署与验收](backend/DEPLOYMENT.md)。
 已验证真实 QQ 群八类消息及双版 OneBot HTTP/WS 身份、撤权和批准群信息查询；公网反向接收端和真实新入站事件仍待联调，PostgreSQL 暂缓，不宣称生产就绪或全量个人号能力。
 
-验证：在 backend 运行 `uv run --locked pytest`。
+验证：在 backend 先运行 `uv run --locked python manage.py migrate`，再运行 `uv run --locked pytest`。
