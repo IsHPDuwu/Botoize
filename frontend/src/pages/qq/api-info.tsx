@@ -28,7 +28,7 @@ export function ApiInfoPage() {
           ['HTTP endpoint', `${base}/onebot/v11/`, `${base}/onebot/v12/`],
           ['通用 WebSocket endpoint', `${base.replace(/^http/, 'ws')}/onebot/v11/`, `${base.replace(/^http/, 'ws')}/onebot/v12/`],
           ['access token / token', '令牌管理中复制的 Botoize API Key', '令牌管理中复制的 Botoize API Key'],
-          ['ID', '持久虚拟数字，不是真实 QQ 号', '原始字符串 OpenID / message ID，保留前导零'],
+          ['ID', '优先已验证的真实数字 ID；未知时使用持久虚拟 ID', '原始字符串 OpenID / message ID，保留前导零'],
           ['HTTP 请求', 'GET /{action} 或 POST params 对象', 'POST { action, params, echo? }'],
         ].map(([field, eleven, twelve]) => <tr key={field} className="border-b last:border-0"><td className="py-2 pr-4 align-top font-medium">{field}</td><td className="py-2 pr-4 align-top text-muted-foreground">{eleven}</td><td className="py-2 align-top text-muted-foreground">{twelve}</td></tr>)}</tbody></table></div>
         <p className="text-muted-foreground">推荐服务端客户端通过 Authorization: Bearer 传 Key。WS 不接受浏览器 Origin 或 Cookie 身份。12 的 echo 为字符串，11 可为任意 JSON；连接先收到元事件，再收到业务事件/动作响应。</p>
@@ -43,6 +43,9 @@ await fetch('${base}/onebot/v12/', {
 // 12 事件轮询：get_latest_events，params: { limit: 100, timeout: 0 }，需要 events:read`}</code></pre>
         <p className="text-muted-foreground">QQ 官方上游支持文本、图片、语音、视频、文件、引用、撤回及已映射群接口；媒体最多一个附件，直传上限 5 MiB。OneBot 上游可在 Provider 中选择 11 或 12，填写上游 HTTP / 正向通用 WS 地址、Bot ID 和 Access Token；能力以协议及上游实现为准，11 没有标准文件消息段。</p>
         <p className="text-muted-foreground">OneBot 11 上游接入下游 11 时保留真实数值 ID；OneBot 12 保留字符串 ID，接入下游 11 时才使用映射。事件可通过上游正向 WS worker 接收，或配置独立密钥上报到 /webhooks/onebot/内部 Bot ID/。详细命令和动作范围见 backend/ONEBOT_UPSTREAM.md。</p>
+        <p className="text-muted-foreground">在 Channel 的“主从协作 · 群聊匹配”选择其他 Provider 的 OneBot 从机后，收消息优先从机，逐条漏收约 2 秒后回退主机；发消息始终走主机。管理接口先主机、失败再尝试已匹配的从机。唯一同名群自动配对，重名群用相近时间的相同消息确认，也可通过 Dialog 新增、编辑或停用匹配。</p>
+        <p className="text-muted-foreground">从机确认的用户 / 群 / 消息真实 ID 会持久替换 OB11 虚拟绑定，旧 ID 保留解析兼容。从机离线不会清除已知真实 ID；未知用户临时分配虚拟 ID，恢复后通过已验证消息逐步升级。不能从 OpenID 单独推算 QQ 号。Channel 显示 OB11 / OB12 接入 ID；官机自身 ID 在首次身份查询或连接后显示，从机账号不会冒充主机身份。</p>
+        <p className="text-muted-foreground">官机 Channel 可启用“文本 / 图文优先 QQ Markdown”，原文保持不变；Markdown 失败或超时后回退原始类型。超时可能已发送成功，因此回退可能重复。图文只转换已确认图片类型，未知媒体句柄保持原类型；后台维护需运行 run_companions，群匹配和历史 ID 证据会分批刷新。</p>
         <p className="text-muted-foreground">反向 WS 和 HTTP 上报由管理员运行后端 run_onebot，指定 Key ID、版本、传输和公网 HTTPS/WSS 443 接收地址；远端 token 与 11 签名 secret 通过环境变量配置，绝不默认把本地 Key 发给接收端。12 使用 12.botoize 子协议，11 使用 X-Self-ID / X-Client-Role。具体命令、动作矩阵和限制见仓库 backend/ONEBOT_SUPPORT.md。</p>
         <p className="text-muted-foreground">QQ群信息/成员/禁言/审批等可能要求 QQ 白名单、内邀或群管理员权限。不能枚举所有未知好友/群，不伪造群名、成员或完整列表；也不支持个人号 Cookie、匿名、好友赞或重启共享平台。普通 Key 不能访问其他 Bot、其他账号或未授权会话。</p>
       </CardContent></Card>

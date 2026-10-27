@@ -30,6 +30,19 @@ export interface UpstreamChannel {
   app_id: string;
   is_active: boolean;
   models: ConversationModel[];
+  companion_channel?: number | null;
+  prefer_markdown?: boolean;
+  group_matches?: ChannelGroupMatch[];
+  connection_ids?: { onebot11: number | null; onebot12: string | null };
+}
+
+export interface ChannelGroupMatch {
+  id?: number;
+  primary_group: string;
+  companion_group: string;
+  name: string;
+  enabled: boolean;
+  origin?: string;
 }
 
 export interface ConversationModel {
