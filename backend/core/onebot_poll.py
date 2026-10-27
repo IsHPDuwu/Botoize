@@ -20,15 +20,17 @@ def latest_events(key, params):
     while True:
         # Every wait iteration checks expiration, disable, grant revision and scopes.
         authorize(key.token, scope='events:read')
+        from .companions import flush_due
+        flush_due(channel_id=key.bot.channel_id)
         with transaction.atomic():
             ApiKey.objects.select_for_update().get(pk=key.pk)
             cursor, _ = OneBotPollCursor.objects.get_or_create(api_key=key)
-            buffered = list(onebot_rows(key, cursor.cursor).order_by('-pk').values_list('pk', flat=True)[:1000])
+            buffered = list(onebot_rows(key, cursor.cursor, flush=False).order_by('-pk').values_list('pk', flat=True)[:1000])
             through = buffered[0] if buffered else cursor.cursor
             if buffered:
                 cursor.cursor = max(cursor.cursor, buffered[-1] - 1)
             while True:
-                page = read_onebot_page(key.token, cursor.cursor, self_id, version=12, limit=min(limit or 1000, 50), through=through)
+                page = read_onebot_page(key.token, cursor.cursor, self_id, version=12, limit=min(limit or 1000, 50), through=through, flush=False)
                 if not page:
                     break
                 for row in page:

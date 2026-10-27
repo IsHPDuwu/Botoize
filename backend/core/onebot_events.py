@@ -54,6 +54,12 @@ def to11_segments(bot, segments):
         kind, data = segment['type'], segment['data']
         if kind == 'reply':
             segment['data'] = {'id': str(virtual_id(bot, 'message', data['message_id']))}
+        elif kind == 'mention':
+            segment['type'], segment['data'] = 'at', {'qq': str(virtual_id(bot, 'user', data['user_id']))}
+        elif kind == 'mention_all':
+            segment['type'], segment['data'] = 'at', {'qq': 'all'}
+        elif kind == 'qq.face':
+            segment['type'] = 'face'
         elif kind in {'image', 'voice', 'video', 'file'}:
             segment['type'] = {'voice': 'record', 'file': 'botoize.file'}.get(kind, kind)
             segment['data'] = {'file': data['file_id']}
@@ -144,6 +150,9 @@ def parsed_message(payload):
 
 
 def remember_message(bot, payload):
+    if payload.get('t') == 'COMPANION_MESSAGE_CREATE':
+        from .companions import remember_bridge
+        return remember_bridge(bot, payload)
     if payload.get('t') == 'ONEBOT_EVENT':
         from .onebot_upstream_events import canonical_message
         return canonical_message(bot, payload)
@@ -183,6 +192,8 @@ def visible_segments(row, key):
         file, _ = OneBotFile.objects.get_or_create(pk=file_id, defaults={
             'api_key': key, 'name': name, 'url': data.get('qq.url', ''), 'complete': True,
             'upstream_file_id': data.get('botoize.upstream_file_id', ''),
+            'upstream_bot_id': row.attachment_bot_id,
+            'upstream_digest': row.attachment_digest,
             'expires_at': timezone.now() + timedelta(hours=24), 'is_direct': row.is_direct, 'target_id': row.target_id,
             'conversation_type': row.conversation_type,
         })
@@ -243,6 +254,9 @@ def notice_event(bot, payload, self_id, version, received_at=None):
 
 
 def message_event(bot, payload, self_id, version=11, key=None, received_at=None):
+    from .companions import bridge_visible
+    if not bridge_visible(bot, payload):
+        return None
     if isinstance(payload, dict) and payload.get('t') == 'ONEBOT_EVENT':
         from .onebot_upstream_events import downstream_event
         return downstream_event(bot, payload, self_id, version, key)
@@ -283,4 +297,6 @@ def message_event(bot, payload, self_id, version=11, key=None, received_at=None)
             event['sender']['role'] = author['member_role']
     if not row.is_direct:
         event['group_id'] = virtual_id(bot, 'group', row.target_id)
+    if payload.get('t') == 'COMPANION_MESSAGE_CREATE':
+        event['sender']['nickname'] = payload['d'].get('nickname', '')
     return event

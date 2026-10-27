@@ -158,7 +158,9 @@ def canonical_input(bot, key, message, version, scopes, target_type, target):
             row = message_record(bot, key, data['id' if version == 11 else 'message_id'], version)
             if row.conversation_type != target_type or row.target_id != target:
                 raise OneBotError(35003, 'Reply context belongs to another conversation')
-            data = {'message_id': row.message_id}
+            if row.attachment_digest and not row.primary_message_id:
+                raise OneBotError(35004, 'No primary message ID is available for this companion reply')
+            data = {'message_id': row.primary_message_id or row.message_id}
         elif kind == 'mention':
             fields(data, {'user_id'}, {'user_id'})
             if version == 12:
@@ -187,7 +189,7 @@ def wire_message(bot, key, canonical, own):
             raw = decode_data(value[9:]) if value.startswith('base64://') else download(value)
         else:
             row = owned_file(key, data['file_id'])
-            if row.upstream_file_id:
+            if row.upstream_file_id and not row.upstream_bot_id:
                 segment['data'] = {'file_id': row.upstream_file_id}
                 continue
             raw = file_bytes(row)
@@ -220,7 +222,14 @@ def wire_message(bot, key, canonical, own):
 
 
 def download_upstream_file(row):
-    bot = row.api_key.bot
+    if row.upstream_digest and not row.upstream_bot_id:
+        raise OneBotError(35003, 'Companion attachment source no longer exists')
+    bot = row.upstream_bot or row.api_key.bot
+    if row.upstream_bot_id:
+        primary = row.api_key.bot
+        if (not bot.is_active or primary.channel.companion_id != bot.channel_id
+                or row.upstream_digest != configuration_digest(bot)):
+            raise OneBotError(35003, 'Companion attachment source changed')
     own, _ = identity(bot)
     if onebot_version(bot) == 12:
         data = call(bot, 'get_file', {'file_id': row.upstream_file_id, 'type': 'data'}, self_info=own)

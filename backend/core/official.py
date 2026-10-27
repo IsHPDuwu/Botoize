@@ -122,7 +122,10 @@ def delete_message(bot, path, query=''):
 def upload_media(bot, path, body, query=''):
     if not MEDIA_PATH.fullmatch(path):
         raise ValueError('Unregistered official media path')
-    return _request(bot, 'POST', path, query, body)
+    result = _request(bot, 'POST', path, query, body)
+    from .markdown import remember_upload
+    remember_upload(bot, path, body, result)
+    return result
 
 
 def send_message(bot, path, body, query='', *, content_type=None):
@@ -133,6 +136,24 @@ def send_message(bot, path, body, query='', *, content_type=None):
             raise ValueError('Multipart is only registered for channel messages')
         validate_multipart(content_type)
         return _request(bot, 'POST', path, query, body, content_type=content_type)
+    from .markdown import markdown_body, accepted, uploaded_type
+    converted = markdown_body(path, body, media_type=uploaded_type(bot, path, body)) if getattr(getattr(bot, 'channel', None), 'prefer_markdown', False) else None
+    # Internal media hint must never be forwarded to QQ.
+    try:
+        original = json.loads(body)
+        if isinstance(original, dict) and 'botoize_media_type' in original:
+            original.pop('botoize_media_type')
+            body = json.dumps(original, ensure_ascii=False).encode()
+    except (ValueError, TypeError):
+        pass
+    if converted is not None:
+        try:
+            result = _request(bot, 'POST', path, query, converted)
+            if accepted(result):
+                return result
+        except OfficialCredentialError:
+            # Explicit user choice: unknown outcomes also fall back, accepting duplicates.
+            pass
     return _request(bot, 'POST', path, query, body)
 
 

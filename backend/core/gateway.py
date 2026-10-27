@@ -86,6 +86,8 @@ def clear_session(bot, token):
 
 @transaction.atomic
 def dispatch(bot, token, payload, allowed_group=None):
+    from .companions import lock_cooperation
+    lock_cooperation()
     # Same lock order as ingestion and claim: Bot, then GatewaySession.
     current = Bot.objects.select_for_update().get(pk=bot.pk)
     row = GatewaySession.objects.select_for_update().get(bot=bot)

@@ -67,13 +67,23 @@ def identity(bot):
         from .onebot_upstream import identity as upstream_identity
         return upstream_identity(bot)
     data = official_json(get_self(bot))
-    return {'platform': 'qq', 'user_id': identifier(data.get('id'))}, data.get('username', '')
+    own_id = identifier(data.get('id'))
+    if bot.channel.onebot_self_id != own_id:
+        from .models import Channel
+        Channel.objects.filter(pk=bot.channel_id).update(onebot_self_id=own_id)
+        bot.channel.onebot_self_id = own_id
+    return {'platform': 'qq', 'user_id': own_id}, data.get('username', '')
 
 
 def resolve_id(bot, kind, value, version):
     from .upstreams import onebot_version
     if version == 11 and onebot_version(bot) == 11:
         from .onebot_upstream import native_id
+        if bot.channel.companion_id:
+            try:
+                return original_id(bot, kind, value)
+            except ValueError:
+                pass
         return str(native_id(value, 11, kind=kind))
     if version == 12:
         if onebot_version(bot):
@@ -94,6 +104,10 @@ def public_id(bot, kind, value, version):
     from .upstreams import onebot_version
     if version == 11 and onebot_version(bot) == 11:
         from .onebot_upstream import native_id
+        if bot.channel.companion_id:
+            from .models import OneBotIdMapping
+            if OneBotIdMapping.objects.filter(bot=bot, kind=kind, original_id=value).exists():
+                return virtual_id(bot, kind, value)
         return native_id(value, 11, kind=kind)
     return value if version == 12 else virtual_id(bot, kind, value)
 
@@ -111,7 +125,7 @@ def capabilities(version):
     return {'version': str(version), 'actions': sorted((ACTIONS12 if version == 12 else ACTIONS11) | EXTENSIONS),
             'message_segments': ['text', 'image', 'video', 'voice' if version == 12 else 'record',
                                  'file' if version == 12 else 'botoize.file', 'reply', 'qq.markdown', 'qq.keyboard'],
-            'id_semantics': 'original string OpenID' if version == 12 else 'persistent virtual numeric ID, not QQ number',
+            'id_semantics': 'original string OpenID' if version == 12 else 'verified real numeric ID when known; persistent virtual numeric ID otherwise',
             'transports': ['http', 'websocket', 'websocket-reverse', 'http-webhook'],
             'limitations': ['QQ official cannot enumerate all QQ friends or joined QQ groups',
                            'Group info/members/kick/ban/approval require additional QQ permissions, some are invite-only',
@@ -169,6 +183,10 @@ def message_record(bot, key, value, version):
     row = OneBotMessage.objects.filter(Q(message_id=mid) | Q(reference=mid), bot=bot, source_digest=digest).first()
     if row is None:
         raise OneBotError(35004, 'Message context unavailable')
+    if row.source_event_id:
+        from .companions import bridge_visible
+        if not bridge_visible(bot, row.source_event.payload):
+            raise OneBotError(35003, 'Message belongs to a previous companion configuration')
     if key is not None:
         if row.conversation_type == 'channel':
             from .onebot_guilds import broad
@@ -194,7 +212,9 @@ def reply_context(row):
         raise OneBotError(35000, 'QQ passive reply context expired or is not inbound')
     locked.reply_sequence += 1
     locked.save(update_fields=['reply_sequence'])
-    return {'msg_id': locked.message_id, 'msg_seq': locked.reply_sequence}
+    if locked.attachment_bot_id and not locked.primary_message_id:
+        raise OneBotError(35004, 'The primary has not received this message; no official passive reply ID is available')
+    return {'msg_id': locked.primary_message_id or locked.message_id, 'msg_seq': locked.reply_sequence}
 
 
 def prepare_message(bot, key, scopes, message, direct, target, version):
@@ -279,10 +299,25 @@ def prepare_message(bot, key, scopes, message, direct, target, version):
         if not isinstance(info, str) or not info:
             raise ValueError('Missing official file handle')
         payload.update(msg_type=7, media={'file_info': info})
+        if bot.channel.prefer_markdown and kind == 'image':
+            payload['botoize_media_type'] = 'image'
     return payload
 
 
 def invoke(bot, scopes, action, params, echo=None, *, key=None, version=11, self_info=None):
+    from .companion_actions import try_management
+    try:
+        return try_management(bot, scopes, action, params, echo, key, version, self_info,
+            lambda: invoke_primary(bot, scopes, action, params, echo, key=key, version=version, self_info=self_info)) if bot and isinstance(action, str) and isinstance(params, dict) else invoke_primary(bot, scopes, action, params, echo, key=key, version=version, self_info=self_info)
+    except OneBotError as exc:
+        return protocol_result(version, code=exc.code, message=exc.message, echo=echo)
+    except PermissionDenied:
+        return protocol_result(version, code=35003, message='Conversation not allowed', echo=echo)
+    except (OfficialCredentialError, ValueError, TypeError, KeyError, OverflowError):
+        return protocol_result(version, code=33000, message='Upstream management unavailable', echo=echo)
+
+
+def invoke_primary(bot, scopes, action, params, echo=None, *, key=None, version=11, self_info=None):
     try:
         from .upstreams import onebot_version
         if onebot_version(bot):
@@ -330,10 +365,14 @@ def dispatch(bot, scopes, action, params, key, version):
         return VERSION.copy() if version == 12 else {'app_name': 'botoize', 'app_version': VERSION['version'], 'protocol_version': 'v11'}
     if action == 'get_supported_actions':
         fields(params, {})
-        return sorted(ACTIONS12 | EXTENSIONS)
+        from .companion_actions import extra_actions
+        return sorted(ACTIONS12 | EXTENSIONS | extra_actions(bot, version))
     if action == 'botoize.get_capabilities':
         fields(params, {})
-        return capabilities(version)
+        data = capabilities(version)
+        from .companion_actions import extra_actions
+        data['actions'] = sorted(set(data['actions']) | extra_actions(bot, version))
+        return data
     if action == 'botoize.get_known_conversations':
         fields(params, {})
         return known_conversations(key, version)

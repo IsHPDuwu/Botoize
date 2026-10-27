@@ -82,6 +82,8 @@ def event_target(payload):
         return None
     data = payload['d']
     kind = payload.get('t')
+    if kind == 'COMPANION_MESSAGE_CREATE':
+        return False, data['group_openid']
     if kind == 'ONEBOT_EVENT':
         if data.get('target_type') not in {'private', 'group'}:
             return None
@@ -102,6 +104,11 @@ def event_target(payload):
 
 
 def event_allowed(policy, payload):
+    if isinstance(payload, dict) and payload.get('t') == 'COMPANION_MESSAGE_CREATE':
+        from .models import Bot
+        from .companions import bridge_visible
+        if not bridge_visible(Bot.objects.select_related('channel__companion').get(pk=policy.bot_id), payload):
+            return False
     if policy.all_conversations:
         return True
     target = event_target(payload)
@@ -111,6 +118,12 @@ def event_allowed(policy, payload):
 
 def filter_events(rows, policy, prefix='event__'):
     """Filter before pagination; never leak hidden rows or stall a cursor on them."""
+    from .models import Bot
+    from .companions import pairing_digest
+    payload = prefix + 'payload__'
+    bot = Bot.objects.select_related('channel__companion').get(pk=policy.bot_id)
+    rows = rows.filter(~Q(**{prefix + 'event_type': 'COMPANION_MESSAGE_CREATE'})
+                       | Q(**{payload + 'd__pairing_digest': pairing_digest(bot.channel)}))
     if policy.all_conversations:
         return rows
     models = policy.conversations.filter(bot_id=policy.bot_id)
@@ -121,6 +134,7 @@ def filter_events(rows, policy, prefix='event__'):
         Q(**{payload + 't': 'C2C_MESSAGE_CREATE', payload + 'd__author__user_openid__in': direct})
         | Q(**{payload + 't__in': GROUP_EVENTS, payload + 'd__group_openid__in': groups})
         | Q(**{payload + 't__in': DIRECT_EVENTS, payload + 'd__openid__in': direct})
+        | Q(**{payload + 't': 'COMPANION_MESSAGE_CREATE', payload + 'd__group_openid__in': groups})
         | Q(**{payload + 't': 'ONEBOT_EVENT', payload + 'd__target_type': 'private', payload + 'd__target_id__in': direct})
         | Q(**{payload + 't': 'ONEBOT_EVENT', payload + 'd__target_type': 'group', payload + 'd__target_id__in': groups}))
 

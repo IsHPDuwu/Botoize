@@ -5,7 +5,7 @@ from .models import Bot, BotGrant, Event, EventOutbox
 
 
 @transaction.atomic
-def ingest_event(bot, payload):
+def ingest_event(bot, payload, *, cooperate=True, snapshot=None):
     if not isinstance(payload, dict) or payload.get('op') != 0:
         raise ValueError('Dispatch envelope required')
     event_id, event_type = payload.get('id'), payload.get('t')
@@ -13,6 +13,8 @@ def ingest_event(bot, payload):
         raise ValueError('Stable upstream event ID required')
     if not isinstance(event_type, str) or not 1 <= len(event_type) <= 100:
         raise ValueError('Event type required')
+    from .companions import lock_cooperation
+    lock_cooperation()
     # Serialize repeated first inserts and grant snapshot creation for this Bot.
     current = Bot.objects.select_for_update().get(pk=bot.pk)
     if not current.is_active:
@@ -44,16 +46,40 @@ def ingest_event(bot, payload):
         message = data.get('id')
         if isinstance(message, str) and 1 <= len(message) <= 256:
             virtual_id(current, 'message', message)
+    if cooperate:
+        from .companions import handle_event
+        if not handle_event(event):
+            return event, True
+    publish_event(event, snapshot=snapshot)
+    return event, True
+
+
+def grant_snapshot(event):
+    from .conversations import event_allowed, grant_current
+    from .subscriptions import subscription_is_current
+    return [{'grant': grant.pk, 'revision': grant.revision,
+             'subscriptions': [{'id': sub.pk, 'revision': sub.revision} for sub in grant.subscriptions.order_by('pk') if subscription_is_current(sub)]}
+            for grant in BotGrant.objects.filter(bot=event.bot, is_active=True, user__is_active=True)
+            if 'events:read' in grant.scopes and grant_current(grant) and event_allowed(grant, event.payload)]
+
+
+def publish_event(event, *, snapshot=None):
+    current, payload = event.bot, event.payload
     grants = BotGrant.objects.select_for_update().filter(bot=current, is_active=True, user__is_active=True)
+    from .conversations import event_allowed, grant_current
     from .subscriptions import subscription_is_current
     rows = []
     for grant in grants:
+        saved = next((entry for entry in snapshot if entry['grant'] == grant.pk and entry['revision'] == grant.revision), None) if snapshot is not None else None
+        if snapshot is not None and saved is None:
+            continue
         if not ('events:read' in grant.scopes and grant_current(grant) and event_allowed(grant, payload)):
             continue
         subscriptions = [sub for sub in grant.subscriptions.order_by('pk') if subscription_is_current(sub)]
+        if saved is not None:
+            subscriptions = [sub for sub in subscriptions if any(s['id'] == sub.pk and s['revision'] == sub.revision for s in saved['subscriptions'])]
         for index, sub in enumerate(subscriptions or [None]):
             rows.append(EventOutbox(event=event, grant=grant, grant_revision=grant.revision,
                                     is_stream=index == 0, subscription=sub,
                                     subscription_revision=sub.revision if sub else None))
-    EventOutbox.objects.bulk_create(rows)
-    return event, True
+    EventOutbox.objects.bulk_create(rows, ignore_conflicts=True)

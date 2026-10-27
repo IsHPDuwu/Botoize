@@ -28,6 +28,8 @@ def claim_outbox(limit=100, lease_seconds=60, max_attempts=5, subscribed_only=Fa
         or type(max_attempts) is not int or not 1 <= max_attempts <= 100
     ):
         raise ValueError('Invalid claim bounds')
+    from .companions import flush_due
+    flush_due()
     now = timezone.now()
     eligible = (
         Q(state='pending') & (Q(available_at__isnull=True) | Q(available_at__lte=now))

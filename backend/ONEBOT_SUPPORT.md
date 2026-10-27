@@ -27,7 +27,7 @@ HTTP 和 WS 使用 **Botoize API Key**，推荐 `Authorization: Bearer <key>`。
 ## ID、上下文和权限
 
 - **12 的 user_id/group_id/message_id 均保留原始字符串**，包括前导零；不 hash、不转整数。QQ 群成员 OpenID、单聊 OpenID、频道用户 ID 仍由 QQ 决定，不能假设可以跨场景互换。
-- 11 的用户/群 ID 是按 Bot + 类型持久化的数值映射，范围 1..2^53-1，**不是真实 QQ 号**。新消息 ID 使用 int32 正数范围；早期实验版已经发出的较大消息映射不偷偷更换。通过 `botoize.get_known_conversations` 获取授权内已发现/保存的虚拟目标。
+- 11 优先使用已验证的真实数值 ID；官机尚无真实 ID 证据时，按 Bot + 类型持久分配虚拟 ID（用户/群为 1..2^53-1，新消息为 int32 正数）。配置 OneBot 从机后，使用双方同一条已验证消息逐步升级既有绑定并保留旧 ID 别名解析；已知真实 ID 在从机离线后仍可用，不从 OpenID 猜测 QQ 号。通过 `botoize.get_known_conversations` 获取授权内的当前目标 ID，Channel 显示自身 OB11/12 接入 ID。详见 [主从协作](COMPANIONS.md)。
 - 当前账号、Key、Bot、授权链/revision、scope、会话范围统一生效；原始字符串 ID 不能绕过会话校验。频道/频道群组操作只允许全会话授权，不把频道 ID 冒充 QQ 群 OpenID。
 - 撤回、引用和读取要求存在持久消息上下文。不能只传任意消息 ID 让后端猜目标。发送记录只允许所属账号访问；入站记录还必须存在当前用户、当前授权版本的事件投递记录。不能读其他账号发送记录或旧授权历史。
 - `messages:send` 发送，`media:upload` 上传/发送媒体，`messages:delete` 撤回，`events:read` 事件/消息/文件读取，`query:read` 元信息与能力查询。群信息 `groups:read`、成员 `group-members:read`、踢人/禁言 `group-moderation:write`、审批 `group-requests:write`。频道沿用 guilds/channels/members 的独立 scope。新 scope 不自动加入旧 Key。

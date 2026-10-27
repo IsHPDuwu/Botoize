@@ -35,6 +35,9 @@ class Channel(models.Model):
     base_url = models.URLField(max_length=2048, default='https://api.bot.qq.com')
     interface_type = models.CharField(max_length=40, default='qq_official_websocket')
     encrypted_event_secret = models.TextField(blank=True)
+    companion = models.ForeignKey('self', null=True, blank=True, on_delete=models.SET_NULL, related_name='primary_channels')
+    prefer_markdown = models.BooleanField(default=False)
+    onebot_self_id = models.CharField(max_length=256, blank=True)
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=['provider', 'name'], name='unique_provider_channel_name')]
@@ -247,6 +250,7 @@ class OneBotIdMapping(models.Model):
     kind = models.CharField(max_length=16, choices=[('user', 'User'), ('group', 'Group'), ('message', 'Message')])
     original_id = models.CharField(max_length=256)
     virtual_id = models.PositiveBigIntegerField()
+    real_id = models.CharField(max_length=256, blank=True, db_index=True)
 
     class Meta:
         constraints = [
@@ -254,6 +258,26 @@ class OneBotIdMapping(models.Model):
             models.UniqueConstraint(fields=['bot', 'kind', 'virtual_id'], name='onebot_virtual_unique'),
             models.CheckConstraint(condition=models.Q(virtual_id__gte=1, virtual_id__lte=9007199254740991), name='onebot_safe_integer'),
         ]
+
+
+class OneBotIdAlias(models.Model):
+    bot = models.ForeignKey(Bot, on_delete=models.CASCADE)
+    kind = models.CharField(max_length=16)
+    alias = models.CharField(max_length=256)
+    original_id = models.CharField(max_length=256)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['bot', 'kind', 'alias'], name='onebot_old_id_alias_unique')]
+
+
+class OfficialMediaHandle(models.Model):
+    bot = models.ForeignKey(Bot, on_delete=models.CASCADE)
+    digest = models.CharField(max_length=64)
+    file_type = models.PositiveSmallIntegerField()
+    expires_at = models.DateTimeField(db_index=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['bot', 'digest'], name='official_media_handle_unique')]
 
 
 class QuotaUsage(models.Model):
@@ -282,6 +306,9 @@ class OneBotMessage(models.Model):
     created_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL)
     conversation_type = models.CharField(max_length=16, blank=True)
     guild_id = models.CharField(max_length=256, blank=True)
+    attachment_bot = models.ForeignKey(Bot, null=True, on_delete=models.SET_NULL, related_name='+')
+    attachment_digest = models.CharField(max_length=64, blank=True)
+    primary_message_id = models.CharField(max_length=256, blank=True)
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=['bot', 'source_digest', 'message_id'], name='onebot_message_source_unique')]
@@ -303,6 +330,44 @@ class OneBotFile(models.Model):
     ranges = models.JSONField(default=list)
     conversation_type = models.CharField(max_length=16, blank=True)
     upstream_file_id = models.CharField(max_length=512, blank=True)
+    upstream_bot = models.ForeignKey(Bot, null=True, on_delete=models.SET_NULL, related_name='+')
+    upstream_digest = models.CharField(max_length=64, blank=True)
+
+
+class ChannelGroupMatch(models.Model):
+    channel = models.ForeignKey(Channel, on_delete=models.CASCADE, related_name='group_matches')
+    companion = models.ForeignKey(Channel, on_delete=models.CASCADE, related_name='+')
+    primary_group = models.CharField(max_length=256)
+    companion_group = models.CharField(max_length=256)
+    name = models.CharField(max_length=120, blank=True)
+    origin = models.CharField(max_length=16, default='manual')
+    enabled = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['channel', 'companion', 'primary_group'], name='companion_primary_group_unique'),
+            models.UniqueConstraint(fields=['channel', 'companion', 'companion_group'], name='companion_remote_group_unique'),
+        ]
+
+
+class CompanionObservation(models.Model):
+    channel = models.ForeignKey(Channel, on_delete=models.CASCADE)
+    event = models.ForeignKey(Event, on_delete=models.CASCADE)
+    side = models.CharField(max_length=16)
+    group_id = models.CharField(max_length=256)
+    sender_id = models.CharField(max_length=256, blank=True)
+    fingerprint = models.CharField(max_length=64, blank=True, db_index=True)
+    sent_at = models.FloatField()
+    paired = models.BooleanField(default=False)
+    output = models.ForeignKey(Event, null=True, on_delete=models.SET_NULL, related_name='+')
+    due_at = models.DateTimeField(null=True, db_index=True)
+    published = models.BooleanField(default=False)
+    configuration = models.CharField(max_length=64)
+    grant_snapshot = models.JSONField(default=list)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['channel', 'event', 'side'], name='companion_observation_unique')]
 
 
 class OneBotUpstreamSession(models.Model):

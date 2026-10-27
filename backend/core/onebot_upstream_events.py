@@ -76,6 +76,8 @@ def normalize_event(bot, value):
 @transaction.atomic
 def receive_event(bot, value, lease_token=None, event_secret=None):
     from .events import ingest_event
+    from .companions import lock_cooperation
+    lock_cooperation()
     current = Bot.objects.select_for_update(of=('self',)).select_related('channel').get(pk=bot.pk)
     if not current.is_active or configuration_digest(current) != configuration_digest(bot):
         raise ValueError('OneBot Channel configuration changed')

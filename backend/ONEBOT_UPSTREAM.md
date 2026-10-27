@@ -2,6 +2,8 @@
 
 更新：2026-10-27。这是 Botoize 连接外部 OneBot 实现的入口；下游连接 Botoize 仍使用原有 `/onebot/v11/`、`/onebot/v12/` 和 Botoize API Key。
 
+OneBot Channel 也可作为另一 Provider 下主机的从机：优先收消息、逐条回退、主机独占发送和管理失败回退，并逐步用真实 ID 替换 OB11 虚拟绑定。群匹配编辑、ID 显示与维护 worker 见 [主从协作](COMPANIONS.md)。
+
 ## 配置
 
 平台管理 → 服务提供商 → Channel 中选择 **OneBot 11** 或 **OneBot 12**，每个 Channel 只对应一个 Bot：

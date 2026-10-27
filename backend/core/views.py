@@ -756,6 +756,8 @@ class RelayEvents(DataPlaneAuditMixin, Capabilities):
     def get(self, request):
         if 'events:read' not in request.effective_scopes:
             raise PermissionDenied('events:read required')
+        from .companions import flush_due
+        flush_due(request.auth.bot.channel_id)
         cursor = request.query_params.get('after', '0')
         limit = request.query_params.get('limit', '50')
         if not cursor.isascii() or not cursor.isdigit() or len(cursor) > 18:
@@ -922,7 +924,9 @@ class Proxy(DataPlaneAuditMixin, Capabilities):
             try:
                 status, raw, headers = _request(request.auth.bot, request.method, path, request.META.get('QUERY_STRING', ''), body)
             except OfficialCredentialError:
-                return Response({'code': 'official_outcome_unknown', 'source': 'platform'}, status=502)
+                status, raw, headers = 502, b'{"code":"official_outcome_unknown","source":"platform"}', {'Content-Type': 'application/json'}
+            from .companion_http import management_fallback
+            status, raw, headers = management_fallback(request, path, (status, raw, headers))
             response = HttpResponse(raw, status=status)
             for name, value in headers.items():
                 response[name] = value

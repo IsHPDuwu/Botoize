@@ -30,6 +30,8 @@ def onebot_identity(token, version=11):
             if status != 200:
                 raise ValueError('Upstream identity unavailable')
             raw_id = json.loads(body)['id']
+            from .models import Channel
+            Channel.objects.filter(pk=key.bot.channel_id).update(onebot_self_id=raw_id)
             identity = raw_id if version == 12 else virtual_id(key.bot, 'user', raw_id)
         cursor = EventOutbox.objects.filter(is_stream=True, grant__user_id=key.user_id, grant__bot_id=key.bot_id).order_by('-pk').values_list('pk', flat=True).first() or 0
         return identity, cursor
@@ -39,7 +41,10 @@ def onebot_identity(token, version=11):
         close_old_connections()
 
 
-def onebot_rows(key, cursor):
+def onebot_rows(key, cursor, *, flush=True):
+    from .companions import flush_due
+    if flush:
+        flush_due(channel_id=key.bot.channel_id)
     rows = EventOutbox.objects.filter(
         is_stream=True, grant__user_id=key.user_id, grant__bot_id=key.bot_id,
         grant_revision=key.grant_revision, event__bot_id=key.bot_id, pk__gt=cursor,
@@ -47,13 +52,13 @@ def onebot_rows(key, cursor):
     return filter_events(filter_events(rows, key_grant(key)), key)
 
 
-def read_onebot_page(token, cursor, self_id, version=11, limit=50, through=None):
+def read_onebot_page(token, cursor, self_id, version=11, limit=50, through=None, *, flush=True):
     from .onebot_events import message_event
     if not connection.in_atomic_block:
         close_old_connections()
     try:
         key, _ = authorize(token, scope='events:read')
-        rows = onebot_rows(key, cursor)
+        rows = onebot_rows(key, cursor, flush=flush)
         if through is not None:
             rows = rows.filter(pk__lte=through)
         rows = rows[:limit]
@@ -68,6 +73,8 @@ def read_page(token, cursor):
     close_old_connections()
     try:
         key, _ = authorize(token, scope='events:read')
+        from .companions import flush_due
+        flush_due(channel_id=key.bot.channel_id)
         rows = EventOutbox.objects.filter(
             is_stream=True,
             grant__user_id=key.user_id, grant__bot_id=key.bot_id,

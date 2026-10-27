@@ -32,10 +32,25 @@ def provider_data(provider, user):
                 continue
             if not grant.all_conversations:
                 models = models.filter(pk__in=grant.conversations.values('pk'))
+        from .companions import matches_data
+        from .onebot_ids import real_number
+        own_id = bot.app_id if onebot_version(bot) else channel.onebot_self_id
+        from .models import OneBotIdMapping
+        mapping = OneBotIdMapping.objects.filter(bot=bot, kind='user', original_id=own_id).first() if own_id else None
+        if own_id and not mapping and onebot_version(bot) != 11:
+            from .onebot_ids import virtual_id
+            virtual_id(bot, 'user', own_id)
+            mapping = OneBotIdMapping.objects.get(bot=bot, kind='user', original_id=own_id)
+        ob11 = int(bot.app_id) if onebot_version(bot) == 11 else (
+            (real_number(mapping.real_id, 'user') if real_number(mapping.real_id, 'user') is not None else mapping.virtual_id) if mapping else None)
         channels.append({'id': channel.pk, 'bot_id': bot.pk, 'name': channel.name,
                          'base_url': channel.base_url, 'interface_type': channel.interface_type,
                          'event_reporting_enabled': bool(channel.encrypted_event_secret),
                          'app_id': bot.app_id, 'is_active': bot.is_active,
+                         'companion_channel': channel.companion_id if user.role == 'Owner' else None,
+                         'prefer_markdown': channel.prefer_markdown,
+                         'group_matches': matches_data(channel) if user.role == 'Owner' else [],
+                         'connection_ids': {'onebot11': ob11, 'onebot12': own_id or None},
                          'models': [conversation_data(model) for model in models]})
     return {'id': provider.pk, 'name': provider.name, 'channels': channels}
 
@@ -77,6 +92,8 @@ def save_model(bot, model):
 
 @transaction.atomic
 def save_provider(request, pk=None):
+    from .companions import lock_cooperation
+    lock_cooperation()
     fields(request.data, ['name', 'channels', 'password'], ['name', 'channels'])
     name = text(request.data, 'name')
     channels = request.data['channels']
@@ -87,7 +104,8 @@ def save_provider(request, pk=None):
     provider.save()
     seen_channels = set()
     for item in channels:
-        fields(item, ['id', 'bot_id', 'name', 'interface_type', 'base_url', 'app_id', 'secret', 'clear_secret', 'event_secret', 'event_reporting_enabled', 'is_active', 'models'],
+        fields(item, ['id', 'bot_id', 'name', 'interface_type', 'base_url', 'app_id', 'secret', 'clear_secret', 'event_secret', 'event_reporting_enabled', 'is_active', 'models',
+                      'companion_channel', 'prefer_markdown', 'group_matches', 'connection_ids'],
                ['name', 'interface_type', 'app_id', 'is_active', 'models'])
         try:
             validate_interface(item['interface_type'])
@@ -110,6 +128,25 @@ def save_provider(request, pk=None):
         transport_changed = channel.pk and (channel.base_url != base_url or channel.interface_type != item['interface_type'])
         channel.name = text(item, 'name')
         channel.base_url, channel.interface_type = base_url, item['interface_type']
+        old_companion = channel.companion_id
+        companion_id = item.get('companion_channel', old_companion)
+        if companion_id is not None:
+            if type(companion_id) is not int or companion_id == channel.pk:
+                raise ValidationError('Invalid companion Channel')
+            companion = get_object_or_404(Channel, pk=companion_id)
+            if companion.provider_id == provider.pk or companion.interface_type not in {'onebot_v11', 'onebot_v12'}:
+                raise ValidationError('Select a OneBot Channel from a different Provider')
+            if companion.companion_id or (channel.pk and Channel.objects.filter(companion=channel).exists()):
+                raise ValidationError('Companion chains and cycles are not supported')
+            channel.companion = companion
+        else:
+            channel.companion = None
+        prefer = item.get('prefer_markdown', channel.prefer_markdown)
+        if type(prefer) is not bool or (is_onebot and prefer):
+            raise ValidationError('Markdown preference is only supported for QQ official Channels')
+        channel.prefer_markdown = prefer
+        if protocol_changed:
+            channel.onebot_self_id = ''
         if 'event_secret' in item:
             value = item['event_secret']
             if not is_onebot or not isinstance(value, str) or len(value) > 4096:
@@ -170,6 +207,14 @@ def save_provider(request, pk=None):
         seen_models = [save_model(bot, model) for model in models]
         if len(seen_models) != len(set(seen_models)):
             raise ValidationError('Duplicate conversation')
+        from .companion_config import save_matches
+        if 'group_matches' in item:
+            save_matches(channel, item['group_matches'])
+        if old_companion != channel.companion_id:
+            from .companion_config import invalidate_pairing_keys
+            invalidate_pairing_keys(bot)
+        from .companions import match_names
+        match_names(channel)
         # Models may be discovered while the editor is open; omissions never delete them.
     if provider.channels.exclude(pk__in=seen_channels).exists():
         raise ValidationError('Existing channels cannot be silently removed; disable them instead')
