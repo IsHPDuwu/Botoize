@@ -6,6 +6,7 @@ from core.providers import Providers, UpstreamInterfaces, CopyToken, SyncConvers
 from core.onebot_http import OneBot12HTTP
 from core.onebot_upstream_webhook import OneBotUpstreamWebhook
 from core.companion_config import RefreshCompanion
+from core.channel_identity import ChannelIdentity
 
 urlpatterns = [
     path('api/v1/openapi.json', openapi_schema),
@@ -20,6 +21,7 @@ urlpatterns = [
     path('api/v1/scopes/', ScopeCatalog.as_view()),
     path('api/v1/channels/<int:pk>/sync/', SyncConversations.as_view()),
     path('api/v1/channels/<int:pk>/companion/refresh/', RefreshCompanion.as_view()),
+    path('api/v1/channels/<int:pk>/identity/', ChannelIdentity.as_view()),
     path('api/v1/bots/<int:pk>/', views.Bots.as_view()),
     path('api/v1/dashboard/overview/', views.DashboardOverview.as_view()),
     path('api/v1/users/', views.Users.as_view()),

@@ -43,6 +43,12 @@ Bot ID 在当前数据库仍全局唯一，同一 Bot ID 不能重复建 Channel
 
 ## 接收事件
 
+### 下游客户端的 Self ID
+
+新部署时无需登录服务器查询数据库。Owner 在「服务提供商」展开 Provider，在 Channel 下点击 **获取 / 刷新 ID**，由后端查询该 Channel 上游身份并保存；点击显示的数字即可复制。OneBot 11 客户端使用 **OB11 ID**；OneBot 12 使用 **OB12 ID**，官机的 platform 填 `qq`。官机 AppID、内部 Bot 编号、从机账号都不是主机的下游 Self ID。官机 OB11 是持久数字映射，OB12 是身份接口返回的字符串 ID。迁移部署应保留数据库，否则无法保留既有数字映射。
+
+对应管理接口为 `POST /api/v1/channels/CHANNEL_ID/identity/`，空 JSON 正文，要求 Owner Session + CSRF；返回 `onebot11` / `onebot12`，不返回凭据。查询失败时保留旧 ID，可检查凭据、网络与 QQ IP 白名单后重试。客户端也能用该 Channel 的 Key 调用 OB11 `get_login_info` / OB12 `get_self_info` 获取身份。
+
 二选一，也可同时启用（相同事件会去重）：
 
 1. **正向 WS worker**：在 backend 运行：

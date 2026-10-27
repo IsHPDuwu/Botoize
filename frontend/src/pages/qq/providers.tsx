@@ -11,6 +11,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useQQAuth } from '@/hooks/use-qq-auth'
 import { management, type UpstreamInterface, type UpstreamProvider } from '@/lib/qq-api'
 import { ProviderDialog } from './provider-dialog'
+import { ChannelIdentity } from './channel-identity'
 
 export function ProvidersPage() {
   const { user } = useQQAuth()
@@ -44,7 +45,7 @@ export function ProvidersPage() {
           <div className='flex flex-wrap gap-2'>{Array.from(new Set(provider.channels.map(channel => channel.interface_type))).map(type => <Badge key={type} variant='outline'>{label(type)}</Badge>)}</div>
           {open && <div className='mt-4 space-y-3 border-t pt-4'>{provider.channels.map(channel => <div key={channel.id} className='rounded-lg border'>
             <div className='flex flex-wrap items-center justify-between gap-2 border-b bg-muted/10 px-4 py-3'><div className='flex min-w-0 items-center gap-2'><Layers3 className='size-4 shrink-0' /><span className='truncate text-sm font-medium'>{channel.name}</span></div><span className='text-xs text-muted-foreground'>{label(channel.interface_type)}</span></div>
-            <div className='flex flex-wrap gap-x-5 gap-y-1 border-b px-4 py-2 font-mono text-xs text-muted-foreground'><span>OB11 ID: {channel.connection_ids?.onebot11 ?? (channel.interface_type === 'onebot_v11' ? channel.app_id : '待获取')}</span><span className='break-all'>OB12 ID: {channel.connection_ids?.onebot12 ?? (channel.interface_type.startsWith('onebot_') ? channel.app_id : '待获取')}</span></div>
+            <ChannelIdentity key={`${channel.id}:${channel.interface_type}:${channel.app_id}:${channel.base_url}`} channel={channel} canRefresh={user?.role === 'Owner'} onRefresh={reload}/>
             {channel.models.length ? channel.models.map(model => <div key={model.id} className='flex items-center justify-between gap-3 border-b px-4 py-3 last:border-b-0'>
               <div className='min-w-0'><p className='truncate text-sm font-medium'>{model.name || (model.isDirect ? '单聊' : '群聊')}</p><p className='truncate font-mono text-xs text-muted-foreground'>{model.userid ?? model.groupid}</p></div>
               <Badge variant='outline'>{model.isDirect ? '单聊' : '群聊'}</Badge>
