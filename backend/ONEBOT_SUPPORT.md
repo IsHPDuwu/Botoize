@@ -57,11 +57,13 @@ HTTP 和 WS 使用 **Botoize API Key**，推荐 `Authorization: Bearer <key>`。
 
 ## 消息与事件
 
-单聊/群支持 text、image、voice（11 record）、video、file（11 botoize.file 扩展）、reply。每次最多一个媒体，不静默拆成多次发送或吞掉不支持的段。独立 audio 音乐语义、位置、任意 @、匿名、合并转发不伪装成普通文本。QQ Markdown/键盘用 `qq.markdown` / `qq.keyboard` 扩展。
+单聊/群支持 text、image、voice（11 record）、video、file（11 botoize.file 扩展）、reply。群聊另支持 OB11 at / CQ at 和 OB12 mention / mention_all，用户 ID 须有主机 OpenID 对应；带 @ 的普通文本自动尝试 Markdown，全局偏好关闭时转义正文以保留普通文本显示。@全部成员仍受 QQ 管理员权限和次数限制。每次最多一个媒体，不静默拆成多次发送或吞掉不支持的段。独立 audio 音乐语义、位置、匿名、合并转发不伪装成普通文本。QQ Markdown/键盘用 `qq.markdown` / `qq.keyboard` 扩展。
 
 12 频道支持 text、mention、mention_all、reply、单图及 qq.face/qq.markdown/qq.keyboard/qq.ark/qq.embed。频道发送额外需要 channels:read 验证 guild/channel 归属。其他组合返回明确错误；不静默解释普通文本中的 `<@...>` 为结构化提及。
 
 引用使用保存的 `message_scene.ext` 中 msg_idx / 发消息响应 ext_info.ref_idx；不把 auth_token 传给下游。`qq.reply_to` 是独立的被动回复扩展，指向同一会话内已授权的真实入站消息，5 分钟内有效，服务端持久递增 msg_seq；不能任意注入 msg_id/msg_seq。QQ 限制每条消息最多被动回复 5 次，最终由 QQ 拒绝超额。网络结果未知不自动重试发送。
+
+主从配对会持久关联官机消息 ID、引用索引与从机消息 ID，引用消息本身也可补充被引用目标的对应。旧 ID 别名继续可查。`get_msg` 可依据当前可读引用，通过匹配从机记录或 OB11 历史查询补齐目标并缓存；必须核对群归属和当前授权，OB12 不虚构历史查询动作。详情及离线/历史修复边界见 [主从协作](COMPANIONS.md)。
 
 接收 C2C、群 @/全量消息，12 还转换频道消息；附件转为可取文件，引用转为 reply，卡片/嵌套消息/提及列表保留为明确的只读 QQ 扩展，不悄悄丢失。群成员增减、机器人进退群、好友增减映射标准 notice；未知操作者留空/0、未知退出原因用空/扩展子类型。11 入群申请产生标准 group/add request，12 用 qq.group_join request 扩展；flag 绑定当前用户事件记录。无法规范化的事件，12 使用 qq.raw_event 扩展，不伪造标准事件类型。
 

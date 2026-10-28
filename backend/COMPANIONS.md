@@ -1,6 +1,6 @@
 # 主从 Channel 与真实 ID
 
-更新：2026-10-27。
+更新：2026-10-28。
 
 在平台管理 → 服务提供商 → Channels 的“主从协作 · 群聊匹配”选择另一个 Provider 的 OneBot 11/12 Channel。每个主机最多一个从机，禁止自身、同 Provider、链式和循环配置。主从各自需要已配置的接收方式：官机 Gateway/Webhook、从机 `run_onebot_upstream --bot ID` 或已鉴权 HTTP 上报。
 
@@ -25,6 +25,14 @@ OB11 优先使用从机已验证的真实数值 ID，并将数据库 `OpenID →
 
 已有历史不会重新投递。维护程序每批扫描双方各最多 200 条尚未观察的、已验证持久群消息，逐步重建对应证据并更新绑定；每 60 秒尝试只读刷新群名称及匹配。不能凭 OpenID 解算真实 QQ 号，没有双方证据的绑定需要后续可匹配消息，不声称已全部识别。
 
+### 引用消息对应
+
+后端持久维护「官机 message ID ↔ 官机 msg_idx / ref_idx ↔ 从机 message ID」。配对的引用消息还会提供「官机 ref_msg_idx ↔ 从机 reply ID」证据，即使原消息未被官机接收，也可补出引用索引。旧虚拟数字 ID、引用索引和 `companion_…` 字符串保留别名，后续收到原消息时归并到官机消息 ID；不会将从机数字 ID 直接传给 QQ。
+
+Koishi 调用 `get_msg` 时，先查当前账号可读的本地记录；目标尚无内容时，只允许依据当前授权内已投递群消息的明确引用，通过已匹配从机的本地记录或 OB11 `get_msg` 获取，核对返回的消息 ID 和群 ID 后缓存。查询前后检查权限和配置，缓存绑定引用事件的授权及配对配置；不开放任意历史消息代理。OB12 没有标准历史读取动作，使用已接收的记录，不伪造标准接口。没有从机可读历史或真实引用证据时仍明确报错。
+
+维护程序会逐批修复旧配对的引用关系。缓存可在从机断线后读取；只获得引用索引时可以引用展示，但不会伪造官机被动回复 ID，`qq.reply_to` 仍要求真实官机入站上下文。
+
 ```powershell
 cd backend
 uv run --locked python manage.py migrate
@@ -40,6 +48,10 @@ Owner 可 POST `/api/v1/channels/CHANNEL_ID/companion/refresh/`（Session + CSRF
 
 仅官机 Channel 可启用。文本和确认是图片的图文先尝试 Markdown，`markdown.content` 与原始文本完全相同，保留回复/键盘等上下文。失败或超时后尝试原始类型；用户明确接受超时结果未知时可能重复发送。已是 Markdown、视频/语音/文件和未知媒体类型不转换；原生上传记录按 Bot、目标和 opaque file_info 的摘要保存图片类型及有效期，不反推 opaque 内容。
 
+普通群消息包含结构化 @ 时，无需开启全局 Markdown 优先，也会尝试 Markdown。OB11 `at` / CQ at 和 OB12 `mention` / `mention_all` 转为当前官方的 `<qqbot-at-user id="member_openid" />` / `<qqbot-at-everyone />`；真实数字用户 ID 必须已有主机 OpenID 对应。未开启全局转换时转义正文 Markdown 和 HTML，保留普通文本显示及 @ 标签；开启时保留正文 Markdown 格式。显式 `qq.markdown` 不转义。邮件地址、普通 `@昵称` 不触发转换；原生内容中的官方 @ 标签及旧 `<@…>` 格式也可触发。@全部成员的管理员权限与每日次数由 QQ 限制。失败/超时回退仍保留原请求，可能重复。
+
 QQ 是否接受 Markdown 及组合由应用权限和当前接口决定；不保证仅换类型后每种图文都被接受，也不为图片改写用户原文或插入 URL，失败走原类型。官方格式依据 [Markdown 文档](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/type/markdown.html)，未读取旧 SDK。
+
+引用字段依据 [发送群聊消息](https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_group_openid_messages.post.html)，@ 格式依据 [文本交互](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/trans/text-chain.html)（2026-10-26 更新）。
 
 本地模拟覆盖两版从机、先后顺序/回退/恢复、真实 ID 与旧别名、历史升级、权限隔离、管理回退、主机发送和 Markdown。真实第三方 OneBot 与实际群环境还需联调；本次未向真实 QQ 发送或执行群管理，PostgreSQL 按要求暂缓。

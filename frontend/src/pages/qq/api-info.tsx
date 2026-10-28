@@ -45,7 +45,7 @@ await fetch('${base}/onebot/v12/', {
         <p className="text-muted-foreground">OneBot 11 上游接入下游 11 时保留真实数值 ID；OneBot 12 保留字符串 ID，接入下游 11 时才使用映射。事件可通过上游正向 WS worker 接收，或配置独立密钥上报到 /webhooks/onebot/内部 Bot ID/。详细命令和动作范围见 backend/ONEBOT_UPSTREAM.md。</p>
         <p className="text-muted-foreground">在 Channel 的“主从协作 · 群聊匹配”选择其他 Provider 的 OneBot 从机后，收消息优先从机，逐条漏收约 2 秒后回退主机；发消息始终走主机。管理接口先主机、失败再尝试已匹配的从机。唯一同名群自动配对，重名群用相近时间的相同消息确认，也可通过 Dialog 新增、编辑或停用匹配。</p>
         <p className="text-muted-foreground">从机确认的用户 / 群 / 消息真实 ID 会持久替换 OB11 虚拟绑定，旧 ID 保留解析兼容。从机离线不会清除已知真实 ID；未知用户临时分配虚拟 ID，恢复后通过已验证消息逐步升级。不能从 OpenID 单独推算 QQ 号。配置 self_id 时，在服务提供商页展开 Provider，点击 Channel 的“获取 / 刷新 ID”，按版本复制 OB11 ID 或 OB12 ID；官机的 OB12 platform 填 qq。不要填 AppID、内部 Bot 编号或从机账号。</p>
-        <p className="text-muted-foreground">官机 Channel 可启用“文本 / 图文优先 QQ Markdown”，原文保持不变；Markdown 失败或超时后回退原始类型。超时可能已发送成功，因此回退可能重复。图文只转换已确认图片类型，未知媒体句柄保持原类型；后台维护需运行 run_companions，群匹配和历史 ID 证据会分批刷新。</p>
+        <p className="text-muted-foreground">官机 Channel 可启用“文本 / 图文优先 QQ Markdown”，保留正文格式。群聊 at / mention 消息即使未开启此项也会尝试 Markdown，此时转义正文格式并保留提及；用户须已有官机 OpenID 对应。Markdown 失败或超时后回退原始类型，超时可能产生重复。图文只转换已确认图片类型；后台维护需运行 run_companions，群匹配、历史 ID 和引用对应会分批刷新。get_msg 可根据当前可读引用，经匹配的 OB11 从机查询并缓存原消息，OB12 从机使用已接收历史。</p>
         <p className="text-muted-foreground">反向 WS 和 HTTP 上报由管理员运行后端 run_onebot，指定 Key ID、版本、传输和公网 HTTPS/WSS 443 接收地址；远端 token 与 11 签名 secret 通过环境变量配置，绝不默认把本地 Key 发给接收端。12 使用 12.botoize 子协议，11 使用 X-Self-ID / X-Client-Role。具体命令、动作矩阵和限制见仓库 backend/ONEBOT_SUPPORT.md。</p>
         <p className="text-muted-foreground">QQ群信息/成员/禁言/审批等可能要求 QQ 白名单、内邀或群管理员权限。不能枚举所有未知好友/群，不伪造群名、成员或完整列表；也不支持个人号 Cookie、匿名、好友赞或重启共享平台。普通 Key 不能访问其他 Bot、其他账号或未授权会话。</p>
       </CardContent></Card>
