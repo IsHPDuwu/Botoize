@@ -129,7 +129,7 @@ def test_cached_quote_is_hidden_after_pairing_change(setup):
 
 
 @pytest.mark.parametrize('failure', ['wrong_group', 'new_grant', 'revoked_during_fetch'])
-def test_unknown_quote_never_exposes_unrelated_or_unauthorized_history(setup, failure):
+def test_lookup_allows_history_without_delivery_snapshot_but_blocks_revoked_keys(setup, failure):
     master, slave, _, _, key, _ = setup
     if slave.channel.interface_type != 'onebot_v11':
         return
@@ -149,10 +149,14 @@ def test_unknown_quote_never_exposes_unrelated_or_unauthorized_history(setup, fa
     before = OneBotMessage.objects.filter(bot=master).count()
     with patch('core.onebot_upstream.call', side_effect=fetch) as remote:
         result = invoke(master, key.scopes, 'get_msg', {'message_id': 40004}, key=key).data
-    assert result['retcode'] != 0
-    assert OneBotMessage.objects.filter(bot=master).count() == before
-    if failure == 'new_grant':
-        remote.assert_not_called()
+    if failure == 'revoked_during_fetch':
+        assert result['retcode'] != 0
+        assert OneBotMessage.objects.filter(bot=master).count() == before
+    else:
+        # Authenticated lookups now intentionally allow history without event
+        # grant snapshots or conversation selection, as requested by the owner.
+        assert result['retcode'] == 0
+        remote.assert_called()
 
 
 def test_quote_links_existing_native_target_without_reference_and_repairs_old_pairs(setup):

@@ -136,9 +136,16 @@ def counterpart(observation):
     if not observation.fingerprint:
         return None
     rows = CompanionObservation.objects.filter(channel=observation.channel,
-        configuration=observation.configuration, fingerprint=observation.fingerprint, paired=False,
+        configuration=observation.configuration, paired=False,
         side='companion' if observation.side == 'primary' else 'primary',
         sent_at__gte=observation.sent_at-MATCH_SECONDS, sent_at__lte=observation.sent_at+MATCH_SECONDS)
+    # Older persisted fingerprints included metadata segments. Refresh both sides
+    # before comparing; refreshing just the current observation cannot repair it.
+    for candidate in rows.order_by('pk')[:200]:
+        current = fingerprint(message_for(candidate.event))
+        if candidate.fingerprint != current:
+            CompanionObservation.objects.filter(pk=candidate.pk).update(fingerprint=current)
+    rows = rows.filter(fingerprint=observation.fingerprint)
     mapping = observation.channel.group_matches.filter(companion_id=observation.channel.companion_id, enabled=True)
     field = 'primary_group' if observation.side == 'primary' else 'companion_group'
     match = mapping.filter(**{field: observation.group_id}).first()
@@ -356,6 +363,16 @@ def backfill_id_evidence(channel, limit=200):
                 added.append(observation.pk)
         for observation in CompanionObservation.objects.filter(pk__in=added, paired=False):
             reconcile(observation)
+        # Existing observations also need repair after upgrades or missed pairing.
+        # Persist a cyclic cursor so older unpairable entries don't starve history.
+        cursor = Channel.objects.get(pk=channel.pk).companion_repair_cursor
+        pending = CompanionObservation.objects.filter(channel=channel, paired=False,
+            configuration=pairing_digest(channel), pk__gt=cursor).order_by('pk')
+        batch = list(pending[:limit])
+        for observation in batch:
+            reconcile(observation)
+        Channel.objects.filter(pk=channel.pk).update(
+            companion_repair_cursor=batch[-1].pk if len(batch) == limit else 0)
         # Repair quote correspondence for pairs created before quote linking existed.
         from .message_links import learn_quotes, register_reference
         for primary in CompanionObservation.objects.filter(channel=channel, side='primary', paired=True,

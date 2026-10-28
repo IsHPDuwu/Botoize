@@ -40,3 +40,11 @@ def segment_fields(data, allowed, required=()):
         fields(data, allowed, required)
     except OneBotError as exc:
         raise OneBotError(10006 if exc.code == 10003 else 10007, exc.message) from None
+
+
+def media_segment(data, version):
+    # OB11 cache/proxy/timeout/type options affect an implementation's download
+    # strategy, not QQ's media payload. Botoize downloads directly, without cache.
+    name = 'file' if version == 11 else 'file_id'
+    fields(data, set(data), {name})
+    return {name: data[name]}

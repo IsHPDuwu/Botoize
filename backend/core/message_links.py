@@ -84,7 +84,7 @@ def bridge_segments(master, segments):
     return result
 
 
-def quoted_history(bot, key, mid):
+def quoted_history(bot, key, mid, *, lookup=False):
     """Fetch only a target explicitly referenced by a currently visible group event.
 
     No unrestricted upstream get_msg proxy. The quote supplies both conversation and
@@ -111,8 +111,8 @@ def quoted_history(bot, key, mid):
         try:
             if key is not None:
                 from .companion_actions import current_authority
-                key = current_authority(key, 'events:read')
-            check_message_access(bot, key, anchor)
+                key = current_authority(key, None if lookup else 'events:read')
+            check_message_access(bot, key, anchor, lookup=lookup)
         except (OneBotError, PermissionDenied):
             continue
         match = bot.channel.group_matches.filter(companion_id=slave.channel_id,
@@ -143,8 +143,8 @@ def quoted_history(bot, key, mid):
                 or not fresh_slave.is_active or configuration_digest(fresh_slave) != digest):
             raise OneBotError(35003, 'Companion configuration changed')
         if key is not None:
-            key = current_authority(key, 'events:read')
-        check_message_access(bot, key, anchor)
+            key = current_authority(key, None if lookup else 'events:read')
+        check_message_access(bot, key, anchor, lookup=lookup)
         # QQ quoted indexes are sendable references, never passive-reply msg_id values.
         reference = mid if not mid.startswith('companion_') else ''
         return OneBotMessage.objects.get_or_create(bot=bot, source_digest='', message_id=mid, defaults={

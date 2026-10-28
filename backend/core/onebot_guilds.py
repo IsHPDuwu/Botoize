@@ -122,7 +122,7 @@ def send_channel(bot, key, scopes, params):
     content, payload, image = [], {}, None
     for segment in message:
         if not isinstance(segment, dict) or set(segment) != {'type', 'data'} or not isinstance(segment['data'], dict):
-            raise OneBotError(10006, 'Invalid segment')
+            continue
         kind, data = segment['type'], segment['data']
         if kind == 'text':
             fields(data, {'text'}, {'text'})
@@ -144,30 +144,35 @@ def send_channel(bot, key, scopes, params):
                 raise OneBotError(10006, 'Invalid face ID')
             content.append('<emoji:' + data['id'] + '>')
         elif kind == 'reply':
-            fields(data, {'message_id', 'user_id'}, {'message_id'})
-            row = message_record(bot, key, data['message_id'], 12)
+            try:
+                row = message_record(bot, key, data.get('message_id'), 12, lookup=True)
+            except OneBotError:
+                continue
             if row.conversation_type != 'channel' or row.target_id != channel or row.guild_id != guild or 'message_reference' in payload:
-                raise OneBotError(35003, 'Reply must refer to this channel')
+                continue
             payload['message_reference'] = {'message_id': row.message_id}
         elif kind == 'image':
-            fields(data, {'file_id'}, {'file_id'})
             if image is not None:
-                raise OneBotError(10007, 'Only one image is supported')
+                continue
+            fields(data, set(data), {'file_id'})
             if 'media:upload' not in scopes:
                 raise OneBotError(35003, 'media:upload scope required')
             image = data['file_id']
         elif kind in {'qq.markdown', 'qq.keyboard', 'qq.ark', 'qq.embed'}:
             name = kind[3:]
             if name in payload or not data:
-                raise OneBotError(10006, 'Invalid or duplicate QQ extension')
+                continue
             payload[name] = data
         else:
-            raise OneBotError(10005, 'Unsupported channel segment')
+            continue
     payload['content'] = ''.join(content)
-    if len(payload['content']) > 20000 or not (payload['content'] or image or any(k in payload for k in ['markdown', 'ark', 'embed'])):
-        raise OneBotError(10006, 'Empty or oversized message')
+    if len(payload['content']) > 20000:
+        raise OneBotError(10006, 'Oversized message')
+    if not (payload['content'] or image or any(k in payload for k in ['markdown', 'ark', 'embed'])):
+        return None
     if any(k in payload for k in ['markdown', 'ark', 'embed']) and (image or payload['content']):
-        raise OneBotError(10007, 'Unsupported mixed channel message')
+        for name in ('markdown', 'ark', 'embed'):
+            payload.pop(name, None)
     if image is not None:
         row = owned_file(key, image)
         raw = file_bytes(row)
@@ -186,5 +191,6 @@ def send_channel(bot, key, scopes, params):
     OneBotMessage.objects.get_or_create(bot=bot, source_digest='', message_id=mid, defaults={
         'conversation_type': 'channel', 'guild_id': guild, 'is_direct': False, 'target_id': channel,
         'sent_at': now, 'segments': message, 'created_by': key.user if key else None,
+        'sender_id': bot.channel.onebot_self_id,
     })
     return {'message_id': mid, 'time': now}

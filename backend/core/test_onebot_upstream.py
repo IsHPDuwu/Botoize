@@ -281,7 +281,8 @@ def test_event_files_and_source_isolation(setup):
         mid = payload['message_id']
         bot.encrypted_secret = encrypt_secret('new-source')
         bot.save(update_fields=['encrypted_secret'])
-        assert invoke(bot, key.scopes, 'get_msg', {'message_id': public_id(bot, 'message', str(mid), 11)}, key=key).data['retcode'] == 1400
+        with patch('core.onebot_upstream.call', side_effect=OneBotError(35004, 'Current upstream has no message')):
+            assert invoke(bot, key.scopes, 'get_msg', {'message_id': public_id(bot, 'message', str(mid), 11)}, key=key).data['retcode'] == 1400
         receive_event(bot, payload)
         assert OneBotMessage.objects.filter(bot=bot, message_id=str(mid)).count() == 2
 

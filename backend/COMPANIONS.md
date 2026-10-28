@@ -29,9 +29,9 @@ OB11 优先使用从机已验证的真实数值 ID，并将数据库 `OpenID →
 
 后端持久维护「官机 message ID ↔ 官机 msg_idx / ref_idx ↔ 从机 message ID」。配对的引用消息还会提供「官机 ref_msg_idx ↔ 从机 reply ID」证据，即使原消息未被官机接收，也可补出引用索引。旧虚拟数字 ID、引用索引和 `companion_…` 字符串保留别名，后续收到原消息时归并到官机消息 ID；不会将从机数字 ID 直接传给 QQ。
 
-Koishi 调用 `get_msg` 时，先查当前账号可读的本地记录；目标尚无内容时，只允许依据当前授权内已投递群消息的明确引用，通过已匹配从机的本地记录或 OB11 `get_msg` 获取，核对返回的消息 ID 和群 ID 后缓存。查询前后检查权限和配置，缓存绑定引用事件的授权及配对配置；不开放任意历史消息代理。OB12 没有标准历史读取动作，使用已接收的记录，不伪造标准接口。没有从机可读历史或真实引用证据时仍明确报错。
+`get_msg`、`get_stranger_info`、`get_user_info` 对当前 Channel 的有效 Key 开放，不再额外要求 action scope、会话选择或消息曾投递给该账号。查询前后仍检查凭据撤销、授权有效性和所属 Channel。`get_msg` 优先查本地；缓存未命中时可直接调用该 OneBot 上游或配置的 OB11 从机 `get_msg`，使用已登记真实 ID 或请求中的真实数字，核对返回的消息 ID 后缓存。历史缓存保留群/用户 ID；官机自己的发送记录缺少 sender 时用官机自身身份补齐。OB12 没有标准历史读取动作，使用已接收的记录。
 
-维护程序会逐批修复旧配对的引用关系。缓存可在从机断线后读取；只获得引用索引时可以引用展示，但不会伪造官机被动回复 ID，`qq.reply_to` 仍要求真实官机入站上下文。
+维护程序会逐批修复旧配对的引用关系，并刷新双方旧消息指纹、循环扫描已存在但未配对的记录，将用户和消息虚拟 ID 升级为真实 ID。`run_connections` 每分钟也执行无网络调用的历史修复，避免漏启维护进程导致旧 ID 永久无法升级。缓存可在从机断线后读取；只获得引用索引时可以引用展示，但不会伪造官机被动回复 ID，`qq.reply_to` 仍要求真实官机入站上下文。
 
 ```powershell
 cd backend
@@ -48,7 +48,7 @@ Owner 可 POST `/api/v1/channels/CHANNEL_ID/companion/refresh/`（Session + CSRF
 
 仅官机 Channel 可启用。文本和确认是图片的图文先尝试 Markdown，`markdown.content` 与原始文本完全相同，保留回复/键盘等上下文。失败或超时后尝试原始类型；用户明确接受超时结果未知时可能重复发送。已是 Markdown、视频/语音/文件和未知媒体类型不转换；原生上传记录按 Bot、目标和 opaque file_info 的摘要保存图片类型及有效期，不反推 opaque 内容。
 
-普通群消息包含结构化 @ 时，无需开启全局 Markdown 优先，也会尝试 Markdown。OB11 `at` / CQ at 和 OB12 `mention` / `mention_all` 转为当前官方的 `<qqbot-at-user id="member_openid" />` / `<qqbot-at-everyone />`；真实数字用户 ID 必须已有主机 OpenID 对应。发送时若数据库找不到官机引用索引或该用户 OpenID，移除对应 reply / at / mention 段，继续发送其余内容，不为发送临时查询从机历史。发送历史只保存实际保留的段；全被移除后为空则返回消息为空。跨会话、越权、已删除引用和格式错误仍拒绝。显式 `qq.reply_to` 的被动回复校验保持不变。未开启全局转换时转义正文 Markdown 和 HTML，保留普通文本显示及 @ 标签；开启时保留正文 Markdown 格式。显式 `qq.markdown` 不转义。邮件地址、普通 `@昵称` 不触发转换；原生内容中的官方 @ 标签及旧 `<@…>` 格式也可触发。@全部成员的管理员权限与每日次数由 QQ 限制。失败/超时回退仍保留原请求，可能重复。
+普通群消息包含结构化 @ 时，无需开启全局 Markdown 优先，也会尝试 Markdown。OB11 `at` / CQ at 和 OB12 `mention` / `mention_all` 转为当前官方的 `<qqbot-at-user id="member_openid" />` / `<qqbot-at-everyone />`；真实数字用户 ID 必须已有主机 OpenID 对应。发送时若数据库找不到官机引用索引或该用户 OpenID，移除对应 reply / at / mention 段，继续发送其余内容，不为发送临时查询从机历史。发送历史只保存实际保留的段；无法转换的附加段、无效/跨会话/已删除引用静默跳过，多媒体只保留可转换的首项。全被移除后返回成功且 data=null，不调用 QQ 发送空消息。OB11 图片 cache/proxy/timeout 等兼容选项忽略。发送目标和写权限仍校验。显式 `qq.reply_to` 的被动回复校验保持不变。未开启全局转换时转义正文 Markdown 和 HTML，保留普通文本显示及 @ 标签；开启时保留正文 Markdown 格式。显式 `qq.markdown` 不转义。邮件地址、普通 `@昵称` 不触发转换；原生内容中的官方 @ 标签及旧 `<@…>` 格式也可触发。@全部成员的管理员权限与每日次数由 QQ 限制。失败/超时回退仍保留原请求，可能重复。
 
 QQ 是否接受 Markdown 及组合由应用权限和当前接口决定；不保证仅换类型后每种图文都被接受，也不为图片改写用户原文或插入 URL，失败走原类型。官方格式依据 [Markdown 文档](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/type/markdown.html)，未读取旧 SDK。
 

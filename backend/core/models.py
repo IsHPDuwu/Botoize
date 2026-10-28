@@ -38,6 +38,7 @@ class Channel(models.Model):
     companion = models.ForeignKey('self', null=True, blank=True, on_delete=models.SET_NULL, related_name='primary_channels')
     prefer_markdown = models.BooleanField(default=False)
     onebot_self_id = models.CharField(max_length=256, blank=True)
+    companion_repair_cursor = models.PositiveBigIntegerField(default=0)
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=['provider', 'name'], name='unique_provider_channel_name')]

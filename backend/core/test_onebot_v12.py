@@ -112,10 +112,10 @@ def test_media_both_versions(setup, segment, file_type):
 
 def test_unsupported_compositions_no_side_effects(setup):
     with patch('core.onebot.send_message') as send, patch('core.onebot.upload_media') as upload:
-        for segments, code in [([{'type': 'location', 'data': {'lat': 1, 'lon': 2}}], 10005),
-            ([{'type': 'text', 'data': {'text': 1}}], 10006),
-            ([{'type': 'image', 'data': {'file_id': 'x'}}, {'type': 'video', 'data': {'file_id': 'y'}}], 10007),
-            ([{'type': 'image', 'data': {'file_id': 'x'}}, {'type': 'unknown', 'data': {}}], 10005)]:
+        for segments, code in [([{'type': 'location', 'data': {'lat': 1, 'lon': 2}}], 0),
+            ([{'type': 'text', 'data': {'text': 1}}], 0),
+            ([{'type': 'image', 'data': {'file_id': 'x'}}, {'type': 'video', 'data': {'file_id': 'y'}}], 10003),
+            ([{'type': 'image', 'data': {'file_id': 'x'}}, {'type': 'unknown', 'data': {}}], 10003)]:
             assert action(setup, 'send_message', {'detail_type': 'group', 'group_id': 'group', 'message': segments})['retcode'] == code
         send.assert_not_called()
         upload.assert_not_called()

@@ -33,7 +33,19 @@ class Supervisor:
     def __init__(self, *, intents, allowed_group, stderr):
         self.intents, self.allowed_group, self.stderr = intents, allowed_group, stderr
         self.children, self.failures, self.retry_at, self.probes = {}, {}, {}, {}
+        self.repair, self.repair_at = None, 0
         self.pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix='channel-http-check')
+
+    @staticmethod
+    def repair_companions():
+        from core.companions import backfill_id_evidence
+        from core.models import Channel
+        close_old_connections()
+        try:
+            for channel in Channel.objects.filter(bots__is_active=True, companion__isnull=False).order_by('pk'):
+                backfill_id_evidence(channel)
+        finally:
+            close_old_connections()
 
     @staticmethod
     def probe(bot, generation):
@@ -106,6 +118,18 @@ class Supervisor:
                 self.stderr.write(f'Channel worker {bot_id} launch failed; retry scheduled')
                 continue
             self.children[bot_id] = {'process': process, 'configuration': configuration_digest(bot), 'started_at': now}
+
+        # History repair must also run on deployments which only start this
+        # supervisor. No upstream calls or old-event replay occur in this task.
+        if now >= self.repair_at and (self.repair is None or self.repair.done()):
+            if self.repair is not None:
+                try:
+                    self.repair.result()
+                except Exception:
+                    self.stderr.write('Companion history repair unavailable; retrying')
+            self.repair_at = now + 60
+            if Bot.objects.filter(is_active=True, channel__companion__isnull=False).exists():
+                self.repair = self.pool.submit(self.repair_companions)
 
     def close(self):
         for child in self.children.values():

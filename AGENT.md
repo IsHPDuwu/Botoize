@@ -10,7 +10,7 @@
 
 Channel 配置接口类型、base_url、AppID/AppSecret，不保留冗余平台字段；已保存 Channel 可切换 QQ 官方 WebSocket / Webhook。OneBot 11/12 上游已实现独立 HTTP/正向 WS 调用、事件 WS worker 与鉴权 HTTP 上报；配置和范围见 backend/ONEBOT_UPSTREAM.md，下游适配独立。
 
-会话通过已验签事件发现或历史事件回填；QQ 无法枚举未知群/用户，不伪造同步。Key 权限必须是当前用户授权的子集；全部 HTTP、WS、回调和 replay 统一检查会话。无法识别会话归属的操作对受限凭据拒绝。非登录操作不要求再次输入密码，保留 Session/CSRF/角色/归属校验。
+会话通过已验签事件发现或历史事件回填；QQ 无法枚举未知群/用户，不伪造同步。Key 权限必须是当前用户授权的子集；HTTP、WS、回调和 replay 统一检查会话。按用户最新要求，OneBot get_msg / get_stranger_info / get_user_info 对所属 Channel 的有效 Key 全开，不要求额外 scope、会话或历史投递快照；其他无法识别会话归属的操作对受限凭据拒绝。官机消息转换不到的附加段静默丢弃，全空时成功但不发送。非登录操作不要求再次输入密码，保留 Session/CSRF/角色/归属校验。
 
 所有添加/编辑流程使用 Monoize 的 Dialog / Provider Channels 工作台布局，复用 frontend/src/pages/providers 下已有源码，不改成页面内联创建表单。
 

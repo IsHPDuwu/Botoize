@@ -138,7 +138,8 @@ def canonical_input(bot, key, message, version, scopes, target_type, target):
                 raise OneBotError(10006, 'Invalid text')
         elif kind in {'image', 'voice', 'video', 'file'}:
             require(scopes, 'media:upload')
-            fields(data, {'file'} if version == 11 else {'file_id'}, {'file'} if version == 11 else {'file_id'})
+            from .onebot_common import media_segment
+            data = media_segment(data, version)
             value = data['file' if version == 11 else 'file_id']
             if not isinstance(value, str):
                 raise OneBotError(10006, 'Invalid file')

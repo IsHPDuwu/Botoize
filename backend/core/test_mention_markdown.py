@@ -90,7 +90,7 @@ def test_mention_all_cq_and_missing_member_mapping(setup):
     with patch('core.official._request') as upstream:
         response = invoke(bot, key.scopes, 'send_group_msg', {'group_id': group,
             'message': [{'type': 'at', 'data': {'qq': str(unknown)}}]}, key=key).data
-    assert response['retcode'] == 1400
+    assert response['retcode'] == 0 and response['data'] is None
     upstream.assert_not_called()
 
 

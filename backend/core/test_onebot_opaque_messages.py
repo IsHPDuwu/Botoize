@@ -50,7 +50,7 @@ def test_koishi_get_msg_resolves_incoming_opaque_message_and_reply_index(setup, 
         remote.assert_not_called()
 
 
-def test_opaque_ids_still_enforce_account_and_conversation_authorization(setup):
+def test_opaque_message_lookup_is_available_to_current_channel_grants(setup):
     bot, key, _ = setup
     mid = 'ROBOT!private/message=='
     ingest_event(bot, payload('private-grant', mid, 'ref/index=='))
@@ -58,7 +58,7 @@ def test_opaque_ids_still_enforce_account_and_conversation_authorization(setup):
     BotGrant.objects.create(user=other, bot=bot, scopes=['events:read'])
     other_key, _ = issue_key(other, bot, 'new grant', ['events:read'])
     result = invoke(bot, other_key.scopes, 'get_msg', {'message_id': virtual_id(bot, 'message', mid)}, key=other_key).data
-    assert result['retcode'] == 1403
+    assert result['retcode'] == 0
 
 
 @pytest.mark.parametrize('bad', ['', 123, 'a\nb', 'a\x00b', 'a b', 'x' * 257])

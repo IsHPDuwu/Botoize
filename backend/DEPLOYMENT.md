@@ -23,6 +23,8 @@ Webhook 无常驻连接，其按钮仅排队执行上游 HTTP 身份检查，不
 
 主从协作另需常驻 `uv run --locked python manage.py run_companions`，维护主机逐条接收回退与群/真实 ID 匹配。详见 [主从协作](COMPANIONS.md)。
 
+`run_connections` 每分钟也执行一次本地历史 ID 修复：刷新双方旧消息指纹，并按数据库游标分批重试已存在的未配对记录；不访问上游或重放历史事件。升级先执行 migrate（包含 `0042`），随后由部署工具重建/重启 connections 以加载代码。该兜底不替代 `run_companions` 的上游群信息刷新和接收回退维护。
+
 ### 官方 Gateway worker
 
 由服务管理器为每个 Bot 单独运行 `uv run --locked python manage.py run_gateway --bot BOT_ID --intents BITMASK`，intents 必须按 QQ 已授权事件位显式配置，不默认申请全部权限。

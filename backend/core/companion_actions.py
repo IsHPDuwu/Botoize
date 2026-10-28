@@ -14,7 +14,7 @@ MANAGEMENT = {name for name in RULES if ('group' in name or name in {
         'set_group_add_request', 'set_friend_add_request', 'get_login_info', 'get_self_info'}}
 
 
-def current_authority(key, scope):
+def current_authority(key, scope=None):
     from django.utils import timezone
     from rest_framework.exceptions import PermissionDenied
     from .models import ApiKey
@@ -23,7 +23,7 @@ def current_authority(key, scope):
             or (current.expires_at and current.expires_at <= timezone.now())):
         raise PermissionDenied('Primary Key no longer valid')
     grant = key_grant(current)
-    if scope not in current.scopes or scope not in grant.scopes:
+    if scope is not None and (scope not in current.scopes or scope not in grant.scopes):
         raise PermissionDenied('Primary scope no longer valid')
     return current
 

@@ -139,7 +139,7 @@ def capabilities(version):
                            'Group info/members/kick/ban/approval require additional QQ permissions, some are invite-only',
                            'Likes, anonymous, cookies and process restart are unavailable',
                            'No server paths, private URLs, automatic transcoding or invented contact metadata',
-                           'At most one media segment; unsupported composition is rejected, never silently dropped']}
+                           'At most one media segment; unconvertible official message segments are omitted']}
 
 
 def unescape(text):
@@ -182,7 +182,7 @@ def segments11(message, auto_escape=False):
     return parts
 
 
-def message_record(bot, key, value, version, *, fetch_history=True):
+def message_record(bot, key, value, version, *, fetch_history=True, lookup=False):
     from django.db.models import Q
     mid = resolve_id(bot, 'message', value, version)
     from .upstreams import onebot_version
@@ -191,11 +191,11 @@ def message_record(bot, key, value, version, *, fetch_history=True):
     row = OneBotMessage.objects.filter(Q(message_id=mid) | Q(reference=mid), bot=bot, source_digest=digest).first()
     if row is None and fetch_history and not onebot_version(bot) and bot.channel.companion_id:
         from .message_links import quoted_history
-        row = quoted_history(bot, key, mid)
+        row = quoted_history(bot, key, mid, lookup=lookup)
     if row is None:
         raise OneBotError(35004, 'Message context unavailable')
     try:
-        check_message_access(bot, key, row)
+        check_message_access(bot, key, row, lookup=lookup)
     except OneBotError:
         # A late native event may still be in cooperation grace. Its already
         # authorized quoted-history cache remains usable until publication.
@@ -205,14 +205,14 @@ def message_record(bot, key, value, version, *, fetch_history=True):
             conversation_type=row.conversation_type).order_by('-pk')[:100]
         for candidate in cached:
             if canonical_id(bot, 'message', candidate.message_id) == mid:
-                check_message_access(bot, key, candidate)
+                check_message_access(bot, key, candidate, lookup=lookup)
                 return candidate
         raise
     return row
 
 
-def check_message_access(bot, key, row):
-    if row.context_event_id:
+def check_message_access(bot, key, row, *, lookup=False):
+    if row.context_event_id or row.context_pairing:
         from .companions import pairing_digest
         if row.context_pairing != pairing_digest(bot.channel):
             raise OneBotError(35003, 'Quoted history belongs to a previous companion configuration')
@@ -221,7 +221,7 @@ def check_message_access(bot, key, row):
         from .companions import bridge_visible
         if not bridge_visible(bot, event.payload):
             raise OneBotError(35003, 'Message belongs to a previous companion configuration')
-    if key is not None:
+    if key is not None and not lookup:
         if row.conversation_type == 'channel':
             from .onebot_guilds import broad
             broad(key)
@@ -259,43 +259,38 @@ def prepare_message(bot, key, scopes, message, direct, target, version, *, prepa
     for segment in message:
         if (not isinstance(segment, dict) or set(segment) != {'type', 'data'}
                 or not isinstance(segment['type'], str) or not isinstance(segment['data'], dict)):
-            raise OneBotError(10006, 'Invalid segment structure')
+            continue
         kind, data = segment['type'], segment['data']
         kind = {'record': 'voice', 'botoize.file': 'file'}.get(kind, kind) if version == 11 else kind
         if kind == 'text':
-            fields(data, {'text'}, {'text'})
-            if not isinstance(data['text'], str):
-                raise OneBotError(10006, 'Text must be a string')
+            if not isinstance(data.get('text'), str):
+                continue
             content.append(data['text'])
         elif kind in ({'at'} if version == 11 else {'mention', 'mention_all'}):
-            fields(data, {'qq'} if version == 11 else {'user_id'} if kind == 'mention' else set(),
-                   {'qq'} if version == 11 else {'user_id'} if kind == 'mention' else set())
             if direct:
-                raise OneBotError(10007, 'Mentions require a group conversation')
-            everyone = kind == 'mention_all' or (kind == 'at' and data['qq'] == 'all')
+                continue
+            everyone = kind == 'mention_all' or (kind == 'at' and data.get('qq') == 'all')
             if everyone:
                 content.append('<qqbot-at-everyone />')
             else:
-                value = data['qq' if version == 11 else 'user_id']
-                if version == 11:
-                    from .onebot_upstream import native_id
-                    native_id(value, 11)  # Invalid input is distinct from an unknown binding.
-                else:
-                    identifier(value)
+                value = data.get('qq' if version == 11 else 'user_id')
                 try:
+                    if version == 11:
+                        from .onebot_upstream import native_id
+                        native_id(value, 11)
+                    else:
+                        identifier(value)
                     user = resolve_id(bot, 'user', value, version)
-                except OneBotError as exc:
-                    if exc.code == 10003:
-                        continue
-                    raise
+                except OneBotError:
+                    continue
                 if user.startswith('companion_'):
                     continue
                 content.append(f'<qqbot-at-user id="{identifier(user)}" />')
         elif kind in MEDIA:
             if media is not None:
-                raise OneBotError(10007, 'QQ supports one media attachment per send')
-            fields(data, {'file_id'} if version == 12 else {'file'},
-                   {'file_id'} if version == 12 else {'file'})
+                continue
+            from .onebot_common import media_segment
+            data = media_segment(data, version)
             if key is None or 'media:upload' not in scopes:
                 raise OneBotError(35003, 'media:upload scope required')
             value = data['file_id' if version == 12 else 'file']
@@ -303,27 +298,25 @@ def prepare_message(bot, key, scopes, message, direct, target, version, *, prepa
                 raise OneBotError(10006, 'Invalid media file')
             media = (kind, value)
         elif kind == 'reply':
-            fields(data, {'message_id', 'user_id'} if version == 12 else {'id'},
-                   {'message_id'} if version == 12 else {'id'})
             if reply_seen:
-                raise OneBotError(10007, 'Only one reply segment is supported')
+                continue
             reply_seen = True
-            value = data['message_id' if version == 12 else 'id']
-            if version == 11:
-                from .onebot_upstream import native_id
-                native_id(value, 11, kind='message')
-            else:
-                message_identifier(value)
+            value = data.get('message_id' if version == 12 else 'id')
             try:
-                reply = message_record(bot, key, value, version, fetch_history=False)
-            except OneBotError as exc:
-                if exc.code in {10003, 35004}:
-                    continue
-                raise
+                if version == 11:
+                    from .onebot_upstream import native_id
+                    native_id(value, 11, kind='message')
+                else:
+                    message_identifier(value)
+                reply = message_record(bot, key, value, version, fetch_history=False, lookup=True)
+            except OneBotError:
+                continue
             if reply.is_direct != direct or reply.target_id != target or reply.deleted:
-                raise OneBotError(35003, 'Reply must refer to the same conversation')
-            if 'user_id' in data and identifier(data['user_id']) != reply.sender_id:
-                raise OneBotError(10006, 'Reply sender does not match')
+                reply = None
+                continue
+            if 'user_id' in data and data['user_id'] != reply.sender_id:
+                reply = None
+                continue
             if not reply.reference:
                 reply = None
                 continue
@@ -339,14 +332,16 @@ def prepare_message(bot, key, scopes, message, direct, target, version, *, prepa
                     raise OneBotError(10007, 'Duplicate keyboard')
                 keyboard = data
         else:
-            raise OneBotError(10005, f'Unsupported message segment: {kind}')
+            continue
         if prepared_segments is not None:
             prepared_segments.append(segment)
     text = ''.join(content)
-    if len(text) > 20000 or (not text and media is None and markdown is None):
-        raise OneBotError(10006, 'Message is empty or too large')
+    if len(text) > 20000:
+        raise OneBotError(10006, 'Message is too large')
+    if not text and media is None and markdown is None:
+        return None
     if (media and (markdown or keyboard)) or (markdown and text):
-        raise OneBotError(10007, 'Unsupported mixed message composition')
+        markdown, keyboard = None, None
     payload = {'content': text, 'msg_type': 0} if markdown is None else {'msg_type': 2, 'markdown': markdown}
     if keyboard is not None:
         payload['keyboard'] = keyboard
@@ -380,6 +375,9 @@ def prepare_message(bot, key, scopes, message, direct, target, version, *, prepa
 def invoke(bot, scopes, action, params, echo=None, *, key=None, version=11, self_info=None):
     from .companion_actions import try_management
     try:
+        from .onebot_queries import QUERY_ACTIONS, invoke_query
+        if isinstance(action, str) and action in QUERY_ACTIONS:
+            return invoke_query(bot, action, params, echo, key, version, self_info)
         return try_management(bot, scopes, action, params, echo, key, version, self_info,
             lambda: invoke_primary(bot, scopes, action, params, echo, key=key, version=version, self_info=self_info)) if bot and isinstance(action, str) and isinstance(params, dict) else invoke_primary(bot, scopes, action, params, echo, key=key, version=version, self_info=self_info)
     except OneBotError as exc:
@@ -524,6 +522,8 @@ def dispatch(bot, scopes, action, params, key, version):
     prepared_segments = []
     payload = prepare_message(bot, key, scopes, message, direct, target, version,
         prepared_segments=prepared_segments)
+    if payload is None:
+        return None  # All segments were omitted; don't send an empty QQ message.
     if context is not None:
         payload.update(reply_context(context))
     response = official_json(send_message(bot, f'v2/{"users" if direct else "groups"}/{target}/messages', json.dumps(payload).encode()))
@@ -540,6 +540,7 @@ def dispatch(bot, scopes, action, params, key, version):
         'conversation_type': 'private' if direct else 'group',
         'sent_at': now, 'reference': reference if isinstance(reference, str) else '',
         'created_by': key.user if key is not None else None,
+        'sender_id': bot.channel.onebot_self_id,
     })
     from .message_links import register_reference
     register_reference(row)

@@ -52,7 +52,7 @@ def test_missing_official_reply_and_mention_are_removed_from_send_and_history(se
 
 
 @pytest.mark.parametrize('version', [11, 12])
-def test_missing_optional_segments_do_not_hide_cross_group_or_invalid_input(setup, version):
+def test_unconvertible_cross_group_or_invalid_reply_is_omitted(setup, version):
     bot, _, _, _, key, _ = setup
     event = primary_message(group='another-group')
     ingest_event(bot,event)
@@ -63,14 +63,14 @@ def test_missing_optional_segments_do_not_hide_cross_group_or_invalid_input(setu
     flush_due()
     mid = virtual_id(bot,'message','official-message') if version == 11 else 'official-message'
     group = virtual_id(bot,'group','openid-group') if version == 11 else 'openid-group'
-    for value, expected in [(mid,1403 if version == 11 else 35003), ('bad id',1400 if version == 11 else 10003)]:
+    for value in (mid, 'bad id'):
         params = {'group_id':group,'message':[
             {'type':'reply','data':{'id':str(value)} if version == 11 else {'message_id':value}},
-            {'type':'text','data':{'text':'not sent'}}]}
+            {'type':'text','data':{'text':'plain text'}}]}
         if version == 12:
             params['detail_type'] = 'group'
-        with patch('core.onebot.send_message') as send:
+        with patch('core.onebot.send_message', return_value=(200,b'{"id":"plain-sent"}',{})) as send:
             result = invoke(bot,key.scopes,'send_group_msg' if version == 11 else 'send_message',
                 params,key=key,version=version).data
-        assert result['retcode'] == expected, result
-        send.assert_not_called()
+        assert result['retcode'] == 0, result
+        assert json.loads(send.call_args.args[2]) == {'content': 'plain text', 'msg_type': 0}
