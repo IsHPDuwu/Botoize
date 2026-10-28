@@ -182,14 +182,14 @@ def segments11(message, auto_escape=False):
     return parts
 
 
-def message_record(bot, key, value, version):
+def message_record(bot, key, value, version, *, fetch_history=True):
     from django.db.models import Q
     mid = resolve_id(bot, 'message', value, version)
     from .upstreams import onebot_version
     from .onebot_upstream import configuration_digest
     digest = configuration_digest(bot) if onebot_version(bot) else ''
     row = OneBotMessage.objects.filter(Q(message_id=mid) | Q(reference=mid), bot=bot, source_digest=digest).first()
-    if row is None and not onebot_version(bot) and bot.channel.companion_id:
+    if row is None and fetch_history and not onebot_version(bot) and bot.channel.companion_id:
         from .message_links import quoted_history
         row = quoted_history(bot, key, mid)
     if row is None:
@@ -250,11 +250,12 @@ def reply_context(row):
     return {'msg_id': locked.primary_message_id or locked.message_id, 'msg_seq': locked.reply_sequence}
 
 
-def prepare_message(bot, key, scopes, message, direct, target, version):
+def prepare_message(bot, key, scopes, message, direct, target, version, *, prepared_segments=None):
     fields = segment_fields
     if not isinstance(message, list) or not 1 <= len(message) <= 100:
         raise OneBotError(10003, 'Expected 1..100 message segments')
     content, media, reply, markdown, keyboard = [], None, None, None, None
+    reply_seen = False
     for segment in message:
         if (not isinstance(segment, dict) or set(segment) != {'type', 'data'}
                 or not isinstance(segment['type'], str) or not isinstance(segment['data'], dict)):
@@ -275,9 +276,20 @@ def prepare_message(bot, key, scopes, message, direct, target, version):
             if everyone:
                 content.append('<qqbot-at-everyone />')
             else:
-                user = resolve_id(bot, 'user', data['qq' if version == 11 else 'user_id'], version)
+                value = data['qq' if version == 11 else 'user_id']
+                if version == 11:
+                    from .onebot_upstream import native_id
+                    native_id(value, 11)  # Invalid input is distinct from an unknown binding.
+                else:
+                    identifier(value)
+                try:
+                    user = resolve_id(bot, 'user', value, version)
+                except OneBotError as exc:
+                    if exc.code == 10003:
+                        continue
+                    raise
                 if user.startswith('companion_'):
-                    raise OneBotError(35004, 'Official member OpenID is not known yet')
+                    continue
                 content.append(f'<qqbot-at-user id="{identifier(user)}" />')
         elif kind in MEDIA:
             if media is not None:
@@ -293,15 +305,28 @@ def prepare_message(bot, key, scopes, message, direct, target, version):
         elif kind == 'reply':
             fields(data, {'message_id', 'user_id'} if version == 12 else {'id'},
                    {'message_id'} if version == 12 else {'id'})
-            if reply is not None:
+            if reply_seen:
                 raise OneBotError(10007, 'Only one reply segment is supported')
-            reply = message_record(bot, key, data['message_id' if version == 12 else 'id'], version)
+            reply_seen = True
+            value = data['message_id' if version == 12 else 'id']
+            if version == 11:
+                from .onebot_upstream import native_id
+                native_id(value, 11, kind='message')
+            else:
+                message_identifier(value)
+            try:
+                reply = message_record(bot, key, value, version, fetch_history=False)
+            except OneBotError as exc:
+                if exc.code in {10003, 35004}:
+                    continue
+                raise
             if reply.is_direct != direct or reply.target_id != target or reply.deleted:
                 raise OneBotError(35003, 'Reply must refer to the same conversation')
             if 'user_id' in data and identifier(data['user_id']) != reply.sender_id:
                 raise OneBotError(10006, 'Reply sender does not match')
             if not reply.reference:
-                raise OneBotError(10007, 'QQ supplied no reference index; use qq.reply_to for passive reply')
+                reply = None
+                continue
         elif kind in {'qq.markdown', 'qq.keyboard'}:
             if not data or len(json.dumps(data)) > 16384:
                 raise OneBotError(10006, 'Invalid QQ extension payload')
@@ -315,6 +340,8 @@ def prepare_message(bot, key, scopes, message, direct, target, version):
                 keyboard = data
         else:
             raise OneBotError(10005, f'Unsupported message segment: {kind}')
+        if prepared_segments is not None:
+            prepared_segments.append(segment)
     text = ''.join(content)
     if len(text) > 20000 or (not text and media is None and markdown is None):
         raise OneBotError(10006, 'Message is empty or too large')
@@ -494,7 +521,9 @@ def dispatch(bot, scopes, action, params, key, version):
             raise OneBotError(35003, 'Passive reply must use the same conversation')
         if not context.incoming or not -30 <= time.time() - context.sent_at <= 300:
             raise OneBotError(35000, 'Passive reply context expired')
-    payload = prepare_message(bot, key, scopes, message, direct, target, version)
+    prepared_segments = []
+    payload = prepare_message(bot, key, scopes, message, direct, target, version,
+        prepared_segments=prepared_segments)
     if context is not None:
         payload.update(reply_context(context))
     response = official_json(send_message(bot, f'v2/{"users" if direct else "groups"}/{target}/messages', json.dumps(payload).encode()))
@@ -507,7 +536,7 @@ def dispatch(bot, scopes, action, params, key, version):
     reference = ext.get('ref_idx', '') if isinstance(ext, dict) else ''
     from .onebot_events import canonical_segments
     row, _ = OneBotMessage.objects.get_or_create(bot=bot, source_digest='', message_id=mid, defaults={
-        'is_direct': direct, 'target_id': target, 'segments': canonical_segments(bot, message, version),
+        'is_direct': direct, 'target_id': target, 'segments': canonical_segments(bot, prepared_segments, version),
         'conversation_type': 'private' if direct else 'group',
         'sent_at': now, 'reference': reference if isinstance(reference, str) else '',
         'created_by': key.user if key is not None else None,

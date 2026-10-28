@@ -48,7 +48,7 @@ Owner 可 POST `/api/v1/channels/CHANNEL_ID/companion/refresh/`（Session + CSRF
 
 仅官机 Channel 可启用。文本和确认是图片的图文先尝试 Markdown，`markdown.content` 与原始文本完全相同，保留回复/键盘等上下文。失败或超时后尝试原始类型；用户明确接受超时结果未知时可能重复发送。已是 Markdown、视频/语音/文件和未知媒体类型不转换；原生上传记录按 Bot、目标和 opaque file_info 的摘要保存图片类型及有效期，不反推 opaque 内容。
 
-普通群消息包含结构化 @ 时，无需开启全局 Markdown 优先，也会尝试 Markdown。OB11 `at` / CQ at 和 OB12 `mention` / `mention_all` 转为当前官方的 `<qqbot-at-user id="member_openid" />` / `<qqbot-at-everyone />`；真实数字用户 ID 必须已有主机 OpenID 对应。未开启全局转换时转义正文 Markdown 和 HTML，保留普通文本显示及 @ 标签；开启时保留正文 Markdown 格式。显式 `qq.markdown` 不转义。邮件地址、普通 `@昵称` 不触发转换；原生内容中的官方 @ 标签及旧 `<@…>` 格式也可触发。@全部成员的管理员权限与每日次数由 QQ 限制。失败/超时回退仍保留原请求，可能重复。
+普通群消息包含结构化 @ 时，无需开启全局 Markdown 优先，也会尝试 Markdown。OB11 `at` / CQ at 和 OB12 `mention` / `mention_all` 转为当前官方的 `<qqbot-at-user id="member_openid" />` / `<qqbot-at-everyone />`；真实数字用户 ID 必须已有主机 OpenID 对应。发送时若数据库找不到官机引用索引或该用户 OpenID，移除对应 reply / at / mention 段，继续发送其余内容，不为发送临时查询从机历史。发送历史只保存实际保留的段；全被移除后为空则返回消息为空。跨会话、越权、已删除引用和格式错误仍拒绝。显式 `qq.reply_to` 的被动回复校验保持不变。未开启全局转换时转义正文 Markdown 和 HTML，保留普通文本显示及 @ 标签；开启时保留正文 Markdown 格式。显式 `qq.markdown` 不转义。邮件地址、普通 `@昵称` 不触发转换；原生内容中的官方 @ 标签及旧 `<@…>` 格式也可触发。@全部成员的管理员权限与每日次数由 QQ 限制。失败/超时回退仍保留原请求，可能重复。
 
 QQ 是否接受 Markdown 及组合由应用权限和当前接口决定；不保证仅换类型后每种图文都被接受，也不为图片改写用户原文或插入 URL，失败走原类型。官方格式依据 [Markdown 文档](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/type/markdown.html)，未读取旧 SDK。
 
