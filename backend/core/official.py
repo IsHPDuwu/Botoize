@@ -166,7 +166,8 @@ def send_message(bot, path, body, query='', *, content_type=None):
         validate_multipart(content_type)
         return _request(bot, 'POST', path, query, body, content_type=content_type)
     from .markdown import markdown_body, accepted, uploaded_type
-    converted = markdown_body(path, body, media_type=uploaded_type(bot, path, body)) if getattr(getattr(bot, 'channel', None), 'prefer_markdown', False) else None
+    converted = markdown_body(path, body, media_type=uploaded_type(bot, path, body),
+        prefer=getattr(getattr(bot, 'channel', None), 'prefer_markdown', False))
     # Internal media hint must never be forwarded to QQ.
     try:
         original = json.loads(body)

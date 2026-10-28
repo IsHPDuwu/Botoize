@@ -95,7 +95,8 @@ def resolve_id(bot, kind, value, version):
         if onebot_version(bot):
             from .onebot_upstream import native_id
             return native_id(value, 12)
-        return message_identifier(value) if kind == 'message' else identifier(value)
+        from .onebot_ids import canonical_id
+        return canonical_id(bot, kind, message_identifier(value) if kind == 'message' else identifier(value))
     try:
         original = original_id(bot, kind, value)
         if onebot_version(bot):
@@ -130,7 +131,8 @@ def known_conversations(key, version):
 def capabilities(version):
     return {'version': str(version), 'actions': sorted((ACTIONS12 if version == 12 else ACTIONS11) | EXTENSIONS),
             'message_segments': ['text', 'image', 'video', 'voice' if version == 12 else 'record',
-                                 'file' if version == 12 else 'botoize.file', 'reply', 'qq.markdown', 'qq.keyboard'],
+                                 'file' if version == 12 else 'botoize.file', 'reply',
+                                 'mention' if version == 12 else 'at', 'mention_all', 'qq.markdown', 'qq.keyboard'],
             'id_semantics': 'original string OpenID' if version == 12 else 'verified real numeric ID when known; persistent virtual numeric ID otherwise',
             'transports': ['http', 'websocket', 'websocket-reverse', 'http-webhook'],
             'limitations': ['QQ official cannot enumerate all QQ friends or joined QQ groups',
@@ -187,11 +189,37 @@ def message_record(bot, key, value, version):
     from .onebot_upstream import configuration_digest
     digest = configuration_digest(bot) if onebot_version(bot) else ''
     row = OneBotMessage.objects.filter(Q(message_id=mid) | Q(reference=mid), bot=bot, source_digest=digest).first()
+    if row is None and not onebot_version(bot) and bot.channel.companion_id:
+        from .message_links import quoted_history
+        row = quoted_history(bot, key, mid)
     if row is None:
         raise OneBotError(35004, 'Message context unavailable')
-    if row.source_event_id:
+    try:
+        check_message_access(bot, key, row)
+    except OneBotError:
+        # A late native event may still be in cooperation grace. Its already
+        # authorized quoted-history cache remains usable until publication.
+        from .onebot_ids import canonical_id
+        cached = OneBotMessage.objects.filter(bot=bot, source_digest=digest,
+            context_event__isnull=False, target_id=row.target_id,
+            conversation_type=row.conversation_type).order_by('-pk')[:100]
+        for candidate in cached:
+            if canonical_id(bot, 'message', candidate.message_id) == mid:
+                check_message_access(bot, key, candidate)
+                return candidate
+        raise
+    return row
+
+
+def check_message_access(bot, key, row):
+    if row.context_event_id:
+        from .companions import pairing_digest
+        if row.context_pairing != pairing_digest(bot.channel):
+            raise OneBotError(35003, 'Quoted history belongs to a previous companion configuration')
+    event = row.source_event if row.source_event_id else row.context_event
+    if event:
         from .companions import bridge_visible
-        if not bridge_visible(bot, row.source_event.payload):
+        if not bridge_visible(bot, event.payload):
             raise OneBotError(35003, 'Message belongs to a previous companion configuration')
     if key is not None:
         if row.conversation_type == 'channel':
@@ -201,14 +229,13 @@ def message_record(bot, key, value, version):
             check_conversation(key, row.is_direct, row.target_id)
         if row.incoming:
             from .models import EventOutbox
-            if row.source_event_id is None or not EventOutbox.objects.filter(
-                event_id=row.source_event_id, is_stream=True, grant__user_id=key.user_id,
+            if event is None or not EventOutbox.objects.filter(
+                event_id=event.pk, is_stream=True, grant__user_id=key.user_id,
                 grant__bot_id=key.bot_id, grant_revision=key.grant_revision,
             ).exists():
                 raise OneBotError(35003, 'Message is outside the current event grant')
         elif row.created_by_id != key.user_id:
             raise OneBotError(35003, 'Message belongs to another account')
-    return row
 
 
 @transaction.atomic
@@ -239,6 +266,19 @@ def prepare_message(bot, key, scopes, message, direct, target, version):
             if not isinstance(data['text'], str):
                 raise OneBotError(10006, 'Text must be a string')
             content.append(data['text'])
+        elif kind in ({'at'} if version == 11 else {'mention', 'mention_all'}):
+            fields(data, {'qq'} if version == 11 else {'user_id'} if kind == 'mention' else set(),
+                   {'qq'} if version == 11 else {'user_id'} if kind == 'mention' else set())
+            if direct:
+                raise OneBotError(10007, 'Mentions require a group conversation')
+            everyone = kind == 'mention_all' or (kind == 'at' and data['qq'] == 'all')
+            if everyone:
+                content.append('<qqbot-at-everyone />')
+            else:
+                user = resolve_id(bot, 'user', data['qq' if version == 11 else 'user_id'], version)
+                if user.startswith('companion_'):
+                    raise OneBotError(35004, 'Official member OpenID is not known yet')
+                content.append(f'<qqbot-at-user id="{identifier(user)}" />')
         elif kind in MEDIA:
             if media is not None:
                 raise OneBotError(10007, 'QQ supports one media attachment per send')
@@ -305,7 +345,7 @@ def prepare_message(bot, key, scopes, message, direct, target, version):
         if not isinstance(info, str) or not info:
             raise ValueError('Missing official file handle')
         payload.update(msg_type=7, media={'file_info': info})
-        if bot.channel.prefer_markdown and kind == 'image':
+        if kind == 'image':
             payload['botoize_media_type'] = 'image'
     return payload
 
@@ -459,19 +499,21 @@ def dispatch(bot, scopes, action, params, key, version):
         payload.update(reply_context(context))
     response = official_json(send_message(bot, f'v2/{"users" if direct else "groups"}/{target}/messages', json.dumps(payload).encode()))
     try:
-        mid = identifier(response.get('id'))
+        mid = message_identifier(response.get('id'))
     except OneBotError:
         raise OneBotError(33000, 'QQ accepted without a usable message ID; do not blindly retry') from None
     now = time.time()
     ext = response.get('ext_info')
     reference = ext.get('ref_idx', '') if isinstance(ext, dict) else ''
     from .onebot_events import canonical_segments
-    OneBotMessage.objects.get_or_create(bot=bot, source_digest='', message_id=mid, defaults={
+    row, _ = OneBotMessage.objects.get_or_create(bot=bot, source_digest='', message_id=mid, defaults={
         'is_direct': direct, 'target_id': target, 'segments': canonical_segments(bot, message, version),
         'conversation_type': 'private' if direct else 'group',
         'sent_at': now, 'reference': reference if isinstance(reference, str) else '',
         'created_by': key.user if key is not None else None,
     })
+    from .message_links import register_reference
+    register_reference(row)
     data = {'message_id': public_id(bot, 'message', mid, version)}
     if version == 12:
         data['time'] = now

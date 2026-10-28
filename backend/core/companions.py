@@ -1,5 +1,4 @@
 """Primary-only sending, durable companion reception and evidence-based group/ID matching."""
-import copy
 import hashlib
 import json
 import re
@@ -104,7 +103,15 @@ def fingerprint(row):
 
 def message_for(event):
     # Ingestion saved the source record before invoking cooperation.
-    return OneBotMessage.objects.filter(source_event=event).first()
+    row = OneBotMessage.objects.filter(source_event=event).first()
+    if row is None:
+        # Late pairing may have attached the primary row to its already published bridge.
+        data = event.payload.get('d', {})
+        mid = data.get('event', {}).get('message_id') if event.event_type == 'ONEBOT_EVENT' else data.get('id')
+        if mid:
+            row = OneBotMessage.objects.filter(bot=event.bot, message_id=str(mid),
+                source_digest=data.get('source_digest', '') if event.event_type == 'ONEBOT_EVENT' else '').first()
+    return row
 
 
 def observe(event, channel, side):
@@ -155,17 +162,8 @@ def bridge_payload(master, slave_event, group, primary_event=None):
     mid = primary_row.message_id if primary_row else 'companion_' + hashlib.sha256(slave_event.event_id.encode()).hexdigest()[:40]
     sender = primary_row.sender_id if primary_row else shadow_user(master, row.sender_id)
     learn_real_id(master, 'message', mid, row.message_id)
-    segments = copy.deepcopy(row.segments)
-    for segment in segments:
-        if segment['type'] == 'mention':
-            segment['data']['user_id'] = shadow_user(master, str(segment['data']['user_id']))
-        elif segment['type'] == 'reply':
-            real = str(segment['data']['message_id'])
-            original = original_for_real(master, 'message', real)
-            if original is None:
-                original = 'companion_' + hashlib.sha256(('reply:' + real).encode()).hexdigest()[:40]
-                learn_real_id(master, 'message', original, real)
-            segment['data']['message_id'] = original
+    from .message_links import bridge_segments
+    segments = bridge_segments(master, row.segments)
     return {'op': 0, 'id': 'companion:' + hashlib.sha256((str(master.pk)+':'+slave_event.event_id).encode()).hexdigest(),
         't': 'COMPANION_MESSAGE_CREATE', 'd': {'group_openid': group, 'sender_id': sender, 'message_id': mid,
         'time': row.sent_at, 'segments': segments, 'source_bot': slave.pk,
@@ -240,6 +238,9 @@ def reconcile(observation):
     learn_real_id(master, 'user', primary.sender_id, slave.sender_id)
     p_row, s_row = message_for(primary.event), message_for(slave.event)
     learn_real_id(master, 'message', p_row.message_id, s_row.message_id)
+    from .message_links import learn_quotes, register_reference
+    register_reference(p_row)
+    learn_quotes(master, p_row, s_row, primary.event)
     # Learn mentions only when order/count on the same verified message agrees.
     left = [s['data']['user_id'] for s in p_row.segments if s['type'] == 'mention']
     right = [s['data']['user_id'] for s in s_row.segments if s['type'] == 'mention']
@@ -265,7 +266,8 @@ def reconcile(observation):
         output = publish_observation(primary, slave=slave, primary=primary)
     for row in (primary, slave):
         row.paired, row.published, row.output = True, True, output
-        row.save(update_fields=['paired', 'published', 'output'])
+        row.quote_links_checked = True
+        row.save(update_fields=['paired', 'published', 'output', 'quote_links_checked'])
     return True
 
 
@@ -347,6 +349,20 @@ def backfill_id_evidence(channel, limit=200):
                 added.append(observation.pk)
         for observation in CompanionObservation.objects.filter(pk__in=added, paired=False):
             reconcile(observation)
+        # Repair quote correspondence for pairs created before quote linking existed.
+        from .message_links import learn_quotes, register_reference
+        for primary in CompanionObservation.objects.filter(channel=channel, side='primary', paired=True,
+                quote_links_checked=False, configuration=pairing_digest(channel),
+                output__isnull=False).order_by('pk')[:limit]:
+            slave_observation = CompanionObservation.objects.filter(channel=channel, side='companion',
+                paired=True, configuration=primary.configuration, output=primary.output).first()
+            if slave_observation:
+                p_row, s_row = message_for(primary.event), message_for(slave_observation.event)
+                if p_row and s_row:
+                    register_reference(p_row)
+                    learn_quotes(master, p_row, s_row, primary.event)
+                    primary.quote_links_checked = True
+                    primary.save(update_fields=['quote_links_checked'])
     return count
 
 

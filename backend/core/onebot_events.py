@@ -36,6 +36,9 @@ def canonical_segments(bot, segments, version):
             kind, data = segment['type'], segment['data']
             if kind == 'reply':
                 segment['data'] = {'message_id': original_id(bot, 'message', data['id'])}
+            elif kind == 'at':
+                segment['type'] = 'mention_all' if data['qq'] == 'all' else 'mention'
+                segment['data'] = {} if data['qq'] == 'all' else {'user_id': original_id(bot, 'user', data['qq'])}
             elif kind in {'image', 'record', 'video', 'botoize.file'}:
                 segment['type'] = {'record': 'voice', 'botoize.file': 'file'}.get(kind, kind)
                 # Do not persist Base64 or arbitrary caller URLs in message history.
@@ -110,7 +113,21 @@ def parsed_message(payload):
     text = data.get('content', '')
     if not isinstance(text, str):
         return None
-    segments = [{'type': 'text', 'data': {'text': text}}] if text else []
+    segments = []
+    if not guild:
+        from .markdown import MENTION
+        start = 0
+        for match in MENTION.finditer(text):
+            if match.start() > start:
+                segments.append({'type': 'text', 'data': {'text': text[start:match.start()]}})
+            mentioned_user = match[1] or match[2]
+            segments.append({'type': 'mention', 'data': {'user_id': mentioned_user}} if mentioned_user else
+                            {'type': 'mention_all', 'data': {}})
+            start = match.end()
+        if start < len(text):
+            segments.append({'type': 'text', 'data': {'text': text[start:]}})
+    elif text:
+        segments.append({'type': 'text', 'data': {'text': text}})
     attachments = data.get('attachments', [])
     if not isinstance(attachments, list) or len(attachments) > 100:
         return None
@@ -167,17 +184,23 @@ def remember_message(bot, payload):
     ext = scene.get('ext', []) if isinstance(scene, dict) else []
     if isinstance(ext, list):
         ref = next((s.split('=', 1)[1] for s in ext if isinstance(s, str) and s.startswith('msg_idx=')), ref)
-    return OneBotMessage.objects.get_or_create(bot=bot, source_digest='', message_id=mid, defaults={
+    row, _ = OneBotMessage.objects.get_or_create(bot=bot, source_digest='', message_id=mid, defaults={
         'is_direct': direct, 'target_id': target, 'sender_id': user, 'segments': segments,
         'sent_at': sent_at, 'incoming': True, 'reference': ref if isinstance(ref, str) else '',
         'conversation_type': 'channel' if guild else 'private' if direct else 'group', 'guild_id': guild,
-    })[0]
+    })
+    from .message_links import register_reference
+    register_reference(row)
+    return row
 
 
 def visible_segments(row, key):
     segments = copy.deepcopy(row.segments)
+    from .onebot_ids import canonical_id
     for index, segment in enumerate(segments):
         data = segment['data']
+        if segment['type'] == 'reply':
+            data['message_id'] = canonical_id(row.bot, 'message', data['message_id'])
         if 'qq.url' not in data and 'botoize.upstream_file_id' not in data:
             continue
         if key is None:

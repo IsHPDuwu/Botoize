@@ -57,7 +57,44 @@ def original_id(bot, kind, value):
         original = mappings.filter(virtual_id=value).values_list('original_id', flat=True).first()
     if original is None:
         raise ValueError('Unknown virtual ID')
-    return original
+    return canonical_id(bot, kind, original)
+
+
+def canonical_id(bot, kind, original):
+    # Follow persisted upgrades for OB12 strings as well as OB11 numeric aliases.
+    for _ in range(16):
+        target = OneBotIdAlias.objects.filter(bot=bot, kind=kind,
+            alias=original_alias(original)).values_list('original_id', flat=True).first()
+        if not target or target == original:
+            return original
+        original = target
+    raise ValueError('Invalid ID alias chain')
+
+
+@transaction.atomic
+def bind_message_alias(bot, alias, original):
+    """Join a verified QQ reference index to its message, preserving issued IDs."""
+    Bot.objects.select_for_update().get(pk=bot.pk)
+    alias, original = canonical_id(bot, 'message', alias), canonical_id(bot, 'message', original)
+    if alias == original:
+        return True
+    rows = OneBotIdMapping.objects.filter(bot=bot, kind='message')
+    previous = rows.filter(original_id=alias).first()
+    virtual_id(bot, 'message', original)
+    current = rows.get(original_id=original)
+    if previous and previous.real_id and current.real_id and previous.real_id != current.real_id:
+        return False
+    real = previous.real_id if previous else ''
+    if previous:
+        OneBotIdAlias.objects.update_or_create(bot=bot, kind='message', alias=str(previous.virtual_id),
+            defaults={'original_id': original})
+        previous.delete()
+    OneBotIdAlias.objects.filter(bot=bot, kind='message', original_id=alias).update(original_id=original)
+    OneBotIdAlias.objects.update_or_create(bot=bot, kind='message', alias=original_alias(alias),
+        defaults={'original_id': original})
+    if real:
+        learn_real_id(bot, 'message', original, real)
+    return True
 
 
 def real_number(value, kind):
@@ -74,6 +111,7 @@ def learn_real_id(bot, kind, original, real):
     if kind not in KINDS or not all(isinstance(v, str) and 1 <= len(v) <= 256 for v in (original, real)):
         raise ValueError('Invalid real ID evidence')
     Bot.objects.select_for_update().get(pk=bot.pk)
+    original = canonical_id(bot, kind, original)
     mappings = OneBotIdMapping.objects.filter(bot=bot, kind=kind)
     virtual_id(bot, kind, original)
     row = mappings.get(original_id=original)
@@ -113,4 +151,4 @@ def original_for_real(bot, kind, real):
 
 
 def real_for_original(bot, kind, original):
-    return OneBotIdMapping.objects.filter(bot=bot, kind=kind, original_id=original).exclude(real_id='').values_list('real_id', flat=True).first()
+    return OneBotIdMapping.objects.filter(bot=bot, kind=kind, original_id=canonical_id(bot, kind, original)).exclude(real_id='').values_list('real_id', flat=True).first()

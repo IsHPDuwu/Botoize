@@ -1,9 +1,33 @@
 """Optional official Markdown attempt. The caller's text and original body stay intact."""
 import copy
 import json
+import re
+from html import escape
 
 
-def markdown_body(path, body, *, media_type=None):
+# Current QQ text-interaction syntax; accept the older syntax at the boundary too.
+MENTION = re.compile(r'<qqbot-at-user\s+id=[\"\']([A-Za-z0-9_.=+-]{1,256})[\"\']\s*/>'
+    r'|<qqbot-at-everyone\s*/>|<@!?([A-Za-z0-9_.=+-]{1,256})>'
+    r'|(?<![\w@])@everyone(?!\w)')
+
+
+def mention_text(text, *, literal=False):
+    def plain(value):
+        if not literal:
+            return value
+        value = escape(value, quote=False)
+        return re.sub(r'([\\`*_{}\[\]()#+\-.!|~])', r'\\\1', value)
+    output, start = [], 0
+    for match in MENTION.finditer(text):
+        output.append(plain(text[start:match.start()]))
+        user = match[1] or match[2]
+        output.append(f'<qqbot-at-user id="{user}" />' if user else '<qqbot-at-everyone />')
+        start = match.end()
+    output.append(plain(text[start:]))
+    return ''.join(output)
+
+
+def markdown_body(path, body, *, media_type=None, prefer=True):
     try:
         data = json.loads(body)
     except (TypeError, ValueError, UnicodeError):
@@ -12,6 +36,9 @@ def markdown_body(path, body, *, media_type=None):
         return None
     text = data['content']
     if not text:
+        return None
+    has_mention = bool(MENTION.search(text))
+    if not prefer and not has_mention:
         return None
     group = path.startswith('v2/')
     if group and data.get('msg_type', 0) not in {0, 7}:
@@ -23,7 +50,7 @@ def markdown_body(path, body, *, media_type=None):
     converted = copy.deepcopy(data)
     converted.pop('botoize_media_type', None)
     converted.pop('content', None)
-    converted['markdown'] = {'content': text}
+    converted['markdown'] = {'content': mention_text(text, literal=not prefer) if has_mention else text}
     if group:
         converted['msg_type'] = 2
     return json.dumps(converted, ensure_ascii=False).encode()
