@@ -97,7 +97,9 @@ def fingerprint(row):
     text = re.sub(r'<@!?[A-Za-z0-9_-]+>', '', text).strip()
     if not text:
         return ''  # Do not infer equality from two unidentifiable images/empty messages.
-    kinds = sorted(s['type'] for s in row.segments if s['type'] not in {'text', 'mention', 'mention_all', 'reply'})
+    from .onebot_events import MESSAGE_METADATA
+    kinds = sorted(s['type'] for s in row.segments if s['type'] not in
+        {'text', 'mention', 'mention_all', 'reply'} | MESSAGE_METADATA)
     return hashlib.sha256(json.dumps([text, kinds], ensure_ascii=False).encode()).hexdigest()
 
 
@@ -225,6 +227,11 @@ def publish_observation(observation, *, slave=None, primary=None):
 def reconcile(observation):
     if observation.configuration != pairing_digest(observation.channel):
         return False
+    # Refresh persisted fingerprints from older releases during bounded history repair.
+    current = fingerprint(message_for(observation.event))
+    if observation.fingerprint != current:
+        observation.fingerprint = current
+        observation.save(update_fields=['fingerprint'])
     other = counterpart(observation)
     if other is None:
         return False

@@ -477,7 +477,7 @@ def dispatch(bot, scopes, action, params, key, version):
         fields(params, {'message_id'}, {'message_id'})
         row = message_record(bot, key, params['message_id'], version)
         if action == 'get_msg':
-            from .onebot_events import to11_segments, visible_segments
+            from .onebot_events import to11_segments, visible_segments, message_metadata
             if row.conversation_type == 'channel':
                 raise OneBotError(10004, 'OneBot 11 has no standard channel message type')
             return {'time': int(row.sent_at), 'message_type': 'private' if row.is_direct else 'group',
@@ -485,7 +485,7 @@ def dispatch(bot, scopes, action, params, key, version):
                     'real_id': public_id(bot, 'message', row.message_id, 11),
                     'sender': {'user_id': public_id(bot, 'user', row.sender_id, 11) if row.sender_id else 0,
                                'nickname': '', 'sex': 'unknown', 'age': 0},
-                    'message': to11_segments(bot, visible_segments(row, key))}
+                    'message': to11_segments(bot, visible_segments(row, key)), **message_metadata(row)}
         if row.incoming:
             raise OneBotError(10004, 'Only bot-sent messages can be recalled here')
         if not row.deleted:

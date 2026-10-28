@@ -82,6 +82,14 @@ Provider 服务提供商
 
 ## 验证证据
 
+### 服务器 aqt 无响应排查（2026-10-28 23:49–23:53，香港时间）
+
+- 只读检查服务器部署版本 ea8b46f、管理事件/审计、Koishi 源码及日志；没有更新部署、重启或重发。服务器额外两处 select_for_update(of=('self',)) 调整未覆盖。compose 与运行进程有 run_connections / run_onebot_upstream，没有发现 run_companions。
+- 指定 GROUP_MESSAGE_CREATE 事件 3365 在 23:52:01.635 入库，23:52:04.442 出现 get_msg，之后至 23:54 没有 send_group_msg。其引用目标事件 3287 的 get_msg 成功。Koishi 日志在此调用没有 aqt 执行/字体/发送记录。
+- 直接原因是官机 msg_elements 被转成额外消息段：用服务器现有 CQCode.parse / h.transform / Argv.parse 和合成内容复现，文本 /aqt 后拼上 qq.msg_elements XML 标签，首个命令 token 不再等于 aqt。日志中 1096794533 / 683454878 两个 1400 对应另两条事件（3309 / 3372）的引用索引，实查均 Message context unavailable，不是指定 aqt 事件的查询。
+- 同一元数据也参与主从 fingerprint，使官机/从机相同正文的引用消息不能配对，阻断引用目标 ID 证据；服务器事件 3329/3330、3372/3370 有相同正文和元数据差异。修复将 qq.msg_elements / qq.mentions 移至事件及 get_msg 结果顶层，保留规范历史，不拼正文；配对忽略并在历史扫描刷新旧 fingerprint。
+- 本地定向 **102 passed**（34.15 秒），后端完整 **634 passed**（73.62 秒），无新 migration，前后端健康检查均 200。没有真实消息发送；服务器仍待用户自行部署并运行维护 worker 后验收。
+
 ### 官机 / OneBot 引用对应与普通 @ 消息（2026-10-28，仅本地）
 
 - 按用户追加规则：发送时只查本地对应，reply 缺少官机消息/引用索引、at / mention 缺少官机 OpenID 时删除该段并发送其余内容；不临时读取从机历史。发送记录同步过滤，避免发送成功后因未知映射落库失败。移除后为空返回空消息错误，格式/权限/跨会话/已删除引用仍拒绝；get_msg 的只读历史查询和显式 qq.reply_to 不变。

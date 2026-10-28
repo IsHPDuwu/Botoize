@@ -71,6 +71,8 @@ HTTP 和 WS 使用 **Botoize API Key**，推荐 `Authorization: Bearer <key>`。
 
 正向 WS 从连接时的事件尾部开始，断线不补发历史；12 HTTP 轮询是每 Key 独立的 1000 条逻辑缓冲区（超出可丢旧事件），与 WS/回调游标互不消费，limit=0 取当前缓冲中的全部；timeout 最大 30 秒。事件 id 稳定，消费者必须去重。反向传输另持久化每目标游标和 fencing 租约，首次配置从当前尾部开始，重启继续游标。WS 发送成功不是业务确认，崩溃边界可能重复，不能承诺 exactly-once。
 
+`msg_elements` 与 `mentions` 是正文的并行表示/元数据，保存在规范历史及事件、get_msg 结果的顶层 `qq.msg_elements` / `qq.mentions` 字段，不作为额外消息段拼进正文。否则 Koishi 会把 `/aqt` 解析为带 XML 扩展标签的命令名，无法命中指令。主从文本配对也忽略这两类元数据，并在历史修复时刷新旧 fingerprint。
+
 ## 文件安全配置
 
 文件 ID 是当前 Key 独有的不透明 UUID，24 小时有效；入站文件额外绑定会话（频道文件始终要求全会话授权）。数据最大 8 MiB、每 Key 64 MiB / 1000 项；QQ 发送二进制直传最大 5 MiB，超出明确拒绝而非冒充支持大文件传输。分片支持乱序、精确重试、SHA256 校验和冲突/空洞检测。

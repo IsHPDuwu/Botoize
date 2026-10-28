@@ -327,13 +327,15 @@ def invoke_upstream(bot, scopes, action, params, echo, key, version, self_info):
         fields(params, {'message_id'}, {'message_id'})
         row = message_record(bot, key, params['message_id'], version)
         if action == 'get_msg':
+            from .onebot_events import message_metadata
             if self_info is not None:
                 checked_identity()
             return result({'time': int(row.sent_at), 'message_type': row.conversation_type,
                            'message_id': public_id(bot, 'message', row.message_id, 11),
                            'real_id': public_id(bot, 'message', row.message_id, 11),
                            'sender': {'user_id': public_id(bot, 'user', row.sender_id, 11) if row.sender_id else 0},
-                           'message': encode_segments(bot, visible_segments(row, key), 11, event=True)})
+                           'message': encode_segments(bot, visible_segments(row, key), 11, event=True),
+                           **message_metadata(row)})
         if row.incoming:
             raise OneBotError(10004, 'Only messages sent through this account may be deleted')
         if not row.deleted:

@@ -10,6 +10,15 @@ from django.utils import timezone
 from .models import Event, OneBotFile, OneBotMessage
 from .onebot_ids import virtual_id, original_id
 
+MESSAGE_METADATA = {'qq.msg_elements', 'qq.mentions'}
+
+
+def message_metadata(row):
+    # Parallel representations and mention metadata are not additional message
+    # content. Keeping them as segments joins markup onto Koishi command names.
+    return {s['type']: safe_extension(copy.deepcopy(s['data'].get('value')))
+            for s in row.segments if s['type'] in MESSAGE_METADATA}
+
 
 def cq_text(text):
     return text.replace('&', '&amp;').replace('[', '&#91;').replace(']', '&#93;')
@@ -195,7 +204,7 @@ def remember_message(bot, payload):
 
 
 def visible_segments(row, key):
-    segments = copy.deepcopy(row.segments)
+    segments = copy.deepcopy([s for s in row.segments if s['type'] not in MESSAGE_METADATA])
     from .onebot_ids import canonical_id
     for index, segment in enumerate(segments):
         data = segment['data']
@@ -302,6 +311,7 @@ def message_event(bot, payload, self_id, version=11, key=None, received_at=None)
             event.update(guild_id=row.guild_id, channel_id=row.target_id)
         elif not row.is_direct:
             event['group_id'] = row.target_id
+        event.update(message_metadata(row))
         return event
     if row.conversation_type == 'channel':
         return None
@@ -322,4 +332,5 @@ def message_event(bot, payload, self_id, version=11, key=None, received_at=None)
         event['group_id'] = virtual_id(bot, 'group', row.target_id)
     if payload.get('t') == 'COMPANION_MESSAGE_CREATE':
         event['sender']['nickname'] = payload['d'].get('nickname', '')
+    event.update(message_metadata(row))
     return event

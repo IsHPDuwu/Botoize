@@ -153,7 +153,7 @@ def canonical_message(bot, payload):
 
 def downstream_event(bot, payload, self_id, version, key):
     from .onebot import public_id
-    from .onebot_events import raw11, visible_segments
+    from .onebot_events import raw11, visible_segments, message_metadata
     data, original = payload['d'], payload['d']['event']
     # A newly configured transport must not resurrect events from a previous upstream.
     if data['source_digest'] != configuration_digest(bot):
@@ -182,6 +182,7 @@ def downstream_event(bot, payload, self_id, version, key):
             result['group_id'] = public_id(bot, 'group', row.target_id, version)
         elif row.conversation_type == 'channel':
             result.update(guild_id=row.guild_id, channel_id=row.target_id)
+        result.update(message_metadata(row))
         return result
     if source_version == version:
         result = copy.deepcopy(original)
