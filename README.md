@@ -5,7 +5,7 @@ Provider 也支持 OneBot 11 / 12 上游：HTTP / 正向 WS 调用、WS 事件�
 
 Channel 支持官机与其他 Provider 的 OneBot 从机协作，逐条接收回退、群匹配、真实 ID 持久升级和 Markdown 优先发送。配置与维护命令见 [主从协作](backend/COMPANIONS.md)。
 
-服务提供商展开 Channel 可查看上游事件连接状态、手动重连，并通过“获取 / 刷新 ID”取得可复制的 OB11 / OB12 Self ID。网页重连需要独立常驻 `uv run --locked python manage.py run_connections`，仅启动 API 不会启动连接 worker；Webhook 的按钮执行 HTTP 身份检查。部署方式见 [部署与验收](backend/DEPLOYMENT.md)。
+服务提供商展开 Channel 可查看上游事件连接状态、手动重连，并通过“获取 / 刷新 ID”取得可复制的 OB11 / OB12 Self ID。独立常驻 `uv run --locked python manage.py run_connections` 会自动连接所有启用的 WebSocket Channel，服务器重启、worker 退出后持续恢复，并处理网页重连请求；仅启动 API 不会启动连接 worker。Webhook 的按钮执行 HTTP 身份检查。部署方式见 [部署与验收](backend/DEPLOYMENT.md)。
 
 ## 本地启动（Windows PowerShell）
 

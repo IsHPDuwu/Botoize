@@ -1,10 +1,19 @@
 # Botoize 项目状态
 
-日期：2026-10-27（主从 Channel 与真实 ID 持久升级）
+日期：2026-10-28（Channel 启动恢复与连接监督）
 
 状态：Provider 已实现 OneBot 11/12 上游接入，并通过本地模拟上游及运行中 8000 服务的真实 HTTP/WS、发送与事件回流验收。此前 QQ 八类群消息、Key 生命周期与 Gateway 心跳/Resume 验收保留。真实第三方 OneBot 实现、公网接收端和用户触发的 QQ 新入站事件尚待联调；PostgreSQL 按用户要求暂缓，不宣称生产就绪。
 
 本次新增：主从 Channel 配置、优先从机接收与逐条约 2 秒主机回退、主机独占发送、已登记管理操作回退、唯一群名 / 双向唯一同内容消息匹配、Dialog 群匹配新增/编辑/停用、Markdown 优先及失败/超时原类型回退。真实 ID 经证据持久替换 OB11 虚拟绑定，旧数字保留解析别名；从机离线保留真实 ID，恢复后分批扫描历史证据升级未知用户。Channel 显示 OB11/12 接入 ID。配置、命令和具体边界见 `backend/COMPANIONS.md`。
+
+## Channel 自动连接修复
+
+- 根因：旧 `run_connections` 仅扫描未处理的手动重连请求；请求消费后，服务器或 worker 重启不会再次启动该 Channel。
+- 现在启动及每轮监督全部启用的 QQ WebSocket / OneBot 11 / OneBot 12 Channel；worker 退出自动退避重启，旧活租约到期前不抢占。停用、切换接口或更换配置会停止旧子进程；无租约的卡死子进程会被终止并替换。数据库暂时不可用时监督循环重试。
+- QQ Gateway 在 Hello 后 20 秒未完成 READY / RESUMED 时重连，避免心跳 ACK 持续到达却始终未认证。
+- 定向回归 47 项通过，含 OB11/12 真实子进程和本地 WS 服务：已消费请求后的冷启动、断开 socket 后原 worker 重连、杀死 worker 后监督进程替换。仅使用独立临时 SQLite 和合成上游，未发送真实 QQ 消息。
+- 同步服务器已存在的两处 PostgreSQL nullable join 加锁修正至本地：主从回退及 outbox 扫描仅锁主表。PostgreSQL 按要求仍未实测。
+- 本地 migrate、系统检查、makemigrations --check 通过；后端完整回归 **650 passed**（101.81 秒）；前端 5173 / 后端 8000 健康检查均为 200。未更新或重启远端部署；线上需应用修复后由常驻 `run_connections` 恢复连接。
 
 ## 资源契约
 
@@ -192,7 +201,7 @@ uv run --with imageio-ffmpeg python -u manage.py verify_live_backend --owner hpd
 - OneBot 通用 WS：`ws://127.0.0.1:8000/onebot/v11/`、`ws://127.0.0.1:8000/onebot/v12/`；ASGI `--ws-max-size 12582912`。开发前端也代理 `/onebot` HTTP/WS。
 - 本次已在后台启动前端 5173 与后端 8000，健康检查均通过。QQ Gateway 此前验收命令为 `run_gateway --bot 6 --intents 33554432 --allowed-group 36407554EC2084AF78BB2ECFC5820ACE --status`；本次未重连真实 QQ 或重发群消息。
 - OneBot 上游事件 worker 为 `run_onebot_upstream --bot ID`；下游主动投递 worker 仍为 `run_onebot`，两者独立。配置 HTTP 上报则无需启动上游 WS worker。
-- 后台常驻 `run_connections --allowed-group 36407554EC2084AF78BB2ECFC5820ACE` 与 `run_companions`。前者按 Owner 请求维护连接，后者维护主从逐条接收回退与匹配；前端/API 启动不等于这些 worker 已启动。
+- 后台常驻 `run_connections --allowed-group 36407554EC2084AF78BB2ECFC5820ACE` 与 `run_companions`。前者持续监督启用的 socket Channel 并处理 Owner 重连请求，后者维护主从逐条接收回退与匹配；前端/API 启动不等于这些 worker 已启动。
 
 ## 后续验收（不能冒充完成）
 

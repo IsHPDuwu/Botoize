@@ -202,9 +202,13 @@ def consume_connection(bot, token, allowed_group=None, on_status=None):
         interval /= 1000
         heartbeat_at = time.monotonic() + interval
         renew_at = time.monotonic() + 5
+        ready_deadline = renew_at + 15
+        authenticated = False
         awaiting_ack = False
         while True:
             now = time.monotonic()
+            if not authenticated and now >= ready_deadline:
+                raise Reconnect('Gateway READY/RESUMED timed out')
             if now >= renew_at:
                 renew(bot, token)
                 renew_at = now + 5
@@ -221,6 +225,8 @@ def consume_connection(bot, token, allowed_group=None, on_status=None):
             opcode = payload['op']
             if opcode == 0:
                 row = dispatch(bot, token, payload, allowed_group=allowed_group)
+                if payload.get('t') in {'READY', 'RESUMED'}:
+                    authenticated = True
                 if on_status and payload.get('t') in {'READY', 'RESUMED'}:
                     on_status('Gateway ' + payload['t'])
             elif opcode == 11:

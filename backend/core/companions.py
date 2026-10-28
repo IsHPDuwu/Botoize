@@ -314,7 +314,7 @@ def flush_due(channel_id=None, limit=100):
     ids = sorted(set(rows.values_list('event__bot_id', flat=True)))
     list(Bot.objects.select_for_update().filter(pk__in=ids).order_by('pk'))
     count = 0
-    for row in rows.select_for_update().select_related('channel__companion', 'event__bot').order_by('pk')[:limit]:
+    for row in rows.select_for_update(of=('self',)).select_related('channel__companion', 'event__bot').order_by('pk')[:limit]:
         if not reconcile(row):
             publish_observation(row)
         count += 1

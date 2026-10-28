@@ -13,7 +13,9 @@
 
 ### 控制台连接管理进程
 
-由服务管理器常驻 `uv run --locked python manage.py run_connections`，处理 Owner 在服务提供商页提交的连接请求。它按请求启动缺失的 `run_gateway` / `run_onebot_upstream` worker；已有有效租约的 worker 自行消费请求并重连，不会抢占其租约。启动管理进程不会自动连接所有 Channel。官机默认 intents 为 33554432，可用 `--intents` 指定，已有会话优先保留原 intents；验收可加 `--allowed-group OPENID` 限定其启动的官机 worker。
+由服务管理器常驻 `uv run --locked python manage.py run_connections`。启动时及运行期间持续监督所有已启用的 QQ WebSocket / OneBot 11 / OneBot 12 Channel，自动启动缺失的 `run_gateway` / `run_onebot_upstream` worker；不依赖是否存在未消费的手动重连请求。已有有效租约时不抢占，进程意外退出或服务器重启后等待旧租约到期，再按 2–60 秒退避恢复。自有子进程超过 75 秒仍无有效租约时终止，10 秒内不退出则强制结束；配置变化或停用会终止旧子进程。数据库暂时不可用时管理循环重试。外部 worker 的活租约仍受保护，跨监督进程竞争由 worker 租约隔离。
+
+官机默认 intents 为 33554432，可用 `--intents` 指定，已有会话优先保留原 intents；验收可加 `--allowed-group OPENID` 限定其启动的官机 worker。默认启动所有启用的 socket Channel，部署前确认 Channel 配置。官机在 Hello 后 20 秒未完成 READY / RESUMED 时重连，不能仅靠心跳 ACK 永久维持未认证连接。
 
 页面每 5 秒读取 `GET /api/v1/channels/status/` 的持久状态；有效租约与已建立事件连接分别判断，过期或配置已变更的连接快照不会显示为已连接。它不是 Bot 实时在线保证。`POST /api/v1/channels/CHANNEL_ID/reconnect/` 只接受 Owner Session + CSRF 和空 JSON，返回 202 表示排队；连续重复请求合并，worker 下一次检查后断开再连接。关停管理进程会终止它启动的子进程，外部服务管理器启动的 worker 独立运行。
 

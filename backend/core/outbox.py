@@ -107,7 +107,7 @@ def finish_outbox(pk, token, success, max_attempts=5):
 def scan_outbox(after=0, limit=100):
     if not isinstance(after, int) or after < 0 or not isinstance(limit, int) or not 1 <= limit <= 1000:
         raise ValueError('Invalid scan bounds')
-    rows = list(EventOutbox.objects.select_for_update().filter(
+    rows = list(EventOutbox.objects.select_for_update(of=('self',)).filter(
         state='pending', pk__gt=after,
     ).select_related('grant__user', 'grant__bot', 'event').order_by('pk')[:limit])
     cancelled = []
