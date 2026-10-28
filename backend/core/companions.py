@@ -97,9 +97,9 @@ def fingerprint(row):
     text = re.sub(r'<@!?[A-Za-z0-9_-]+>', '', text).strip()
     if not text:
         return ''  # Do not infer equality from two unidentifiable images/empty messages.
-    from .onebot_events import MESSAGE_METADATA
-    kinds = sorted(s['type'] for s in row.segments if s['type'] not in
-        {'text', 'mention', 'mention_all', 'reply'} | MESSAGE_METADATA)
+    from .onebot_events import content_segments
+    kinds = sorted(s['type'] for s in content_segments(row.segments) if s['type'] not in
+        {'text', 'mention', 'mention_all', 'reply'})
     return hashlib.sha256(json.dumps([text, kinds], ensure_ascii=False).encode()).hexdigest()
 
 

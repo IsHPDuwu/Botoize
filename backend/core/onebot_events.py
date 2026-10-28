@@ -13,6 +13,14 @@ from .onebot_ids import virtual_id, original_id
 MESSAGE_METADATA = {'qq.msg_elements', 'qq.mentions'}
 
 
+def content_segments(segments):
+    """NapCat may provide Markdown plus its plain-text fallback in one message."""
+    text = ''.join(s.get('data', {}).get('text', '') for s in segments if s.get('type') == 'text')
+    return [s for s in segments if s.get('type') not in MESSAGE_METADATA and not (
+        s.get('type') in {'markdown', 'qq.markdown'} and text and
+        s.get('data', {}).get('content') == text)]
+
+
 def message_metadata(row):
     # Parallel representations and mention metadata are not additional message
     # content. Keeping them as segments joins markup onto Koishi command names.
@@ -204,7 +212,7 @@ def remember_message(bot, payload):
 
 
 def visible_segments(row, key):
-    segments = copy.deepcopy([s for s in row.segments if s['type'] not in MESSAGE_METADATA])
+    segments = copy.deepcopy(content_segments(row.segments))
     from .onebot_ids import canonical_id
     for index, segment in enumerate(segments):
         data = segment['data']

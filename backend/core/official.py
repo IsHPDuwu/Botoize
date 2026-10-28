@@ -2,7 +2,7 @@
 import json
 import re
 from contextlib import contextmanager
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
@@ -142,8 +142,18 @@ MEDIA_PATH = re.compile(r'v2/(?:users|groups)/[A-Za-z0-9_-]{1,128}/(?:files|uplo
 DELETE_MESSAGE_PATH = re.compile(r'(?:v2/(?:users|groups)|channels|dms)/[A-Za-z0-9_-]{1,128}/messages/[A-Za-z0-9_.=+-]{1,256}')
 
 
-def delete_message(bot, path, query=''):
-    if not DELETE_MESSAGE_PATH.fullmatch(path):
+def delete_message(bot, path, query='', *, message_id=None):
+    if message_id is not None:
+        # IDs returned by QQ are opaque. Keep them separate from the registered
+        # collection path so slashes, percent signs, ? and # remain ID data.
+        from .onebot_common import message_identifier
+        if not re.fullmatch(r'(?:v2/(?:users|groups)|channels|dms)/[A-Za-z0-9_-]{1,128}/messages', path):
+            raise ValueError('Unregistered official delete path')
+        encoded = quote(message_identifier(message_id), safe='')
+        if encoded in {'.', '..'}:
+            encoded = encoded.replace('.', '%2E')
+        path += '/' + encoded
+    elif not DELETE_MESSAGE_PATH.fullmatch(path):
         raise ValueError('Unregistered official delete path')
     return _request(bot, 'DELETE', path, query)
 

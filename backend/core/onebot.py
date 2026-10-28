@@ -250,6 +250,29 @@ def reply_context(row):
     return {'msg_id': locked.primary_message_id or locked.message_id, 'msg_seq': locked.reply_sequence}
 
 
+def recall_official(bot, row):
+    path = (f'channels/{row.target_id}/messages' if row.conversation_type == 'channel' else
+            f'v2/{"users" if row.is_direct else "groups"}/{row.target_id}/messages')
+    try:
+        response = delete_message(bot, path, message_id=row.message_id)
+    except OfficialCredentialError as exc:
+        reason = exc.reason if exc.reason in {'timeout', 'dns', 'tls', 'connection_refused', 'network', 'invalid_response', 'upstream_rejected'} else 'unavailable'
+        raise OneBotError(33000, f'QQ recall outcome unknown ({reason})') from None
+    status, body, _ = response
+    from .official import response_code
+    code = response_code(body)
+    reasons = {40061001: 'invalid message or target ID', 40062003: 'permission denied',
+               40064004: 'two-minute recall limit exceeded', 50065001: 'recall failed'}
+    if not 200 <= status < 300 or code not in (None, 0):
+        detail = reasons.get(code, 'upstream rejected recall')
+        raise OneBotError(34000, f'QQ recall failed: {detail} (HTTP {status}' +
+                         (f', code {code}' if code is not None else '') + ')')
+    try:
+        official_json(response, empty=True)
+    except (OneBotError, ValueError, TypeError):
+        raise OneBotError(33000, 'QQ recall outcome unknown (invalid_response)') from None
+
+
 def prepare_message(bot, key, scopes, message, direct, target, version, *, prepared_segments=None):
     fields = segment_fields
     if not isinstance(message, list) or not 1 <= len(message) <= 100:
@@ -487,9 +510,7 @@ def dispatch(bot, scopes, action, params, key, version):
         if row.incoming:
             raise OneBotError(10004, 'Only bot-sent messages can be recalled here')
         if not row.deleted:
-            path = (f'channels/{row.target_id}/messages/{row.message_id}' if row.conversation_type == 'channel' else
-                    f'v2/{"users" if row.is_direct else "groups"}/{row.target_id}/messages/{row.message_id}')
-            official_json(delete_message(bot, path), empty=True)
+            recall_official(bot, row)
             row.deleted = True
             row.save(update_fields=['deleted'])
         return None

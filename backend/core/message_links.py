@@ -48,7 +48,7 @@ def learn_quotes(master, primary, companion, primary_event=None):
             return
         known = OneBotMessage.objects.filter(bot=master, source_digest=primary.source_digest,
             message_id=previous, target_id=primary.target_id, conversation_type='group').first()
-        if known is None or known.reference not in ('', reference):
+        if known is None:
             return
         if not known.reference:
             known.reference = reference

@@ -22,6 +22,8 @@ HTTP 和 WS 使用 **Botoize API Key**，推荐 `Authorization: Bearer <key>`。
 {"action":"send_message","params":{"detail_type":"group","group_id":"ORIGINAL_GROUP_OPENID","message":[{"type":"text","data":{"text":"hello"}}]},"echo":"request-1"}
 ```
 
+`delete_msg` / `delete_message` 将持久 OneBot ID 解析回官机原始 message ID，再按 URL 路径段编码；不会用引用索引替代撤回 ID。QQ 群撤回超过两分钟会被官方拒绝，失败返回脱敏 HTTP 状态和官方数字错误码；结果未知不会自动重试。图片发出后，插件清理“正在渲染”提示失败也可能被插件外层报告为渲染失败。
+
 12 的 echo 必须是字符串，self 若传入必须匹配当前 Key 的机器人。11 echo 原样回传任意 JSON。12 使用标准 10001/10002/10003/10004/10005/10006/10007/10102 以及 33xxx/34xxx/35xxx 错误码。11 保留 1400 参数、1403 权限、1404 不支持、1429 限流、1500 官方拒绝、1502 结果未知。
 
 ## ID、上下文和权限
