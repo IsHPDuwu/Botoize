@@ -78,6 +78,8 @@ def identity(bot):
         from .models import Channel
         Channel.objects.filter(pk=bot.channel_id).update(onebot_self_id=own_id)
         bot.channel.onebot_self_id = own_id
+    from .self_identity import repair_self_identity
+    repair_self_identity(bot)
     return {'platform': 'qq', 'user_id': own_id}, data.get('username', '')
 
 
@@ -565,6 +567,8 @@ def dispatch(bot, scopes, action, params, key, version):
     })
     from .message_links import register_reference
     register_reference(row)
+    from .self_identity import repair_self_identity
+    repair_self_identity(bot)
     data = {'message_id': public_id(bot, 'message', mid, version)}
     if version == 12:
         data['time'] = now

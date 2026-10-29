@@ -107,6 +107,9 @@ def lookup_message(bot, key, params, version):
         if sender:
             row.sender_id = sender
             row.save(update_fields=['sender_id'])
+    if not row.incoming and sender == bot.channel.onebot_self_id:
+        from .self_identity import repair_self_identity
+        repair_self_identity(bot)
     segments = visible_segments(row, key)
     wire = encode_segments(bot, segments, 11, event=True) if onebot_version(bot) else to11_segments(bot, segments)
     uid = public_id(bot, 'user', sender, 11) if sender else 0

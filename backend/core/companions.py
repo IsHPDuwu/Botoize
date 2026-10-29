@@ -90,8 +90,8 @@ def match_names(channel):
     return count
 
 
-def fingerprint(row):
-    if row is None or row.conversation_type != 'group' or not row.incoming:
+def fingerprint(row, *, include_sent=False):
+    if row is None or row.conversation_type != 'group' or (not row.incoming and not include_sent):
         return ''
     text = ''.join(s.get('data', {}).get('text', '') for s in row.segments if s.get('type') == 'text')
     text = re.sub(r'<@!?[A-Za-z0-9_-]+>', '', text).strip()
@@ -298,6 +298,8 @@ def handle_event(event):
     for primary_channel in Channel.objects.filter(companion=channel).select_related('companion'):
         if not primary_channel.bots.filter(is_active=True).exists():
             continue
+        from .self_identity import learn_from_companion
+        learn_from_companion(primary_channel.bots.get(), message_for(event))
         observed = observe(event, primary_channel, 'companion')
         if observed is None:
             continue
@@ -342,6 +344,8 @@ def backfill_id_evidence(channel, limit=200):
     master, slave = channel.bots.first(), companion_bot(channel)
     if not master or not slave:
         return 0
+    from .self_identity import repair_self_identity
+    repair_self_identity(master, limit=limit)
     count, added = 0, []
     with transaction.atomic():
         lock_cooperation()
