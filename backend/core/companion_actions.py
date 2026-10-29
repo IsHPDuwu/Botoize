@@ -77,6 +77,10 @@ def try_management(bot, scopes, action, params, echo, key, version, self_info, p
     if 'user_id' in outgoing:
         original = resolve_id(bot, 'user', params['user_id'], version)
         real = real_for_original(bot, 'user', original)
+        if not real and group is not None:
+            from .identity_probes import ensure_identity
+            ensure_identity(bot, group, original=original)
+            real = real_for_original(bot, 'user', original)
         if not real and original == bot.channel.onebot_self_id:
             from .self_identity import repair_self_identity
             repair_self_identity(bot)

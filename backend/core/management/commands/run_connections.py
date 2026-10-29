@@ -34,6 +34,7 @@ class Supervisor:
         self.intents, self.allowed_group, self.stderr = intents, allowed_group, stderr
         self.children, self.failures, self.retry_at, self.probes = {}, {}, {}, {}
         self.repair, self.repair_at = None, 0
+        self.identity_pending = None
         self.pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix='channel-http-check')
 
     @staticmethod
@@ -66,6 +67,17 @@ class Supervisor:
     def tick(self):
         close_old_connections()
         now = time.monotonic()
+        from core.models import IdentityProbe
+        if self.identity_pending is None or self.identity_pending.done():
+            if self.identity_pending is not None:
+                try:
+                    self.identity_pending.result()
+                except Exception:
+                    self.stderr.write('Identity probe processing unavailable; retrying')
+            if IdentityProbe.objects.filter(state='queued').exists() or IdentityProbe.objects.filter(
+                    cleanup_pending=True, cleanup_attempts__lt=3).exists():
+                from core.identity_probes import process_pending
+                self.identity_pending = self.pool.submit(process_pending)
         for bot_id, child in list(self.children.items()):
             if child['process'].poll() is not None:
                 del self.children[bot_id]

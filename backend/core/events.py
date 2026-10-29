@@ -25,6 +25,11 @@ def ingest_event(bot, payload, *, cooperate=True, snapshot=None):
     )
     if not created:
         return event, False
+    from .identity_probes import consume_probe_event
+    if consume_probe_event(current, payload):
+        event.payload = {**payload, 'botoize.identity_probe': True}
+        event.save(update_fields=['payload'])
+        return event, True
     from .conversations import discover, event_allowed, grant_current
     discover(current, payload)
     from .onebot_events import remember_message
@@ -65,6 +70,8 @@ def grant_snapshot(event):
 
 def publish_event(event, *, snapshot=None):
     current, payload = event.bot, event.payload
+    if payload.get('botoize.identity_probe'):
+        return
     grants = BotGrant.objects.select_for_update().filter(bot=current, is_active=True, user__is_active=True)
     from .conversations import event_allowed, grant_current
     from .subscriptions import subscription_is_current

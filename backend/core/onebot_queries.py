@@ -110,6 +110,21 @@ def lookup_message(bot, key, params, version):
     if not row.incoming and sender == bot.channel.onebot_self_id:
         from .self_identity import repair_self_identity
         repair_self_identity(bot)
+    if sender and row.conversation_type == 'group' and key is not None and bot.channel.identity_probe_enabled:
+        from .conversations import check_conversation
+        from rest_framework.exceptions import PermissionDenied
+        try:
+            check_conversation(key, False, row.target_id)
+        except PermissionDenied:
+            pass  # Read-only query access does not authorize an active group probe.
+        else:
+            from .identity_probes import ensure_identity
+            ensure_identity(bot, row.target_id, original=sender)
+            for segment in row.segments:
+                if segment['type'] == 'mention':
+                    ensure_identity(bot, row.target_id, original=segment['data']['user_id'], wait=False)
+            from .onebot_ids import canonical_id
+            sender = canonical_id(bot, 'user', sender)
     segments = visible_segments(row, key)
     wire = encode_segments(bot, segments, 11, event=True) if onebot_version(bot) else to11_segments(bot, segments)
     uid = public_id(bot, 'user', sender, 11) if sender else 0

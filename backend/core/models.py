@@ -37,11 +37,31 @@ class Channel(models.Model):
     encrypted_event_secret = models.TextField(blank=True)
     companion = models.ForeignKey('self', null=True, blank=True, on_delete=models.SET_NULL, related_name='primary_channels')
     prefer_markdown = models.BooleanField(default=False)
+    identity_probe_enabled = models.BooleanField(default=False)
     onebot_self_id = models.CharField(max_length=256, blank=True)
     companion_repair_cursor = models.PositiveBigIntegerField(default=0)
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=['provider', 'name'], name='unique_provider_channel_name')]
+
+
+class IdentityProbe(models.Model):
+    channel = models.ForeignKey(Channel, on_delete=models.CASCADE)
+    companion = models.ForeignKey(Channel, on_delete=models.CASCADE, related_name='+')
+    configuration = models.CharField(max_length=64)
+    primary_group = models.CharField(max_length=256)
+    companion_group = models.CharField(max_length=256)
+    real_user = models.CharField(max_length=256)
+    original_user = models.CharField(max_length=256, blank=True)
+    direction = models.CharField(max_length=20, default='companion')
+    marker = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    state = models.CharField(max_length=20, default='queued')
+    message_id = models.CharField(max_length=256, blank=True)
+    cleanup_pending = models.BooleanField(default=False)
+    cleanup_attempts = models.PositiveSmallIntegerField(default=0)
+    error_code = models.CharField(max_length=40, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
 
 class ChannelConnectionRequest(models.Model):

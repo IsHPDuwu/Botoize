@@ -49,6 +49,7 @@ def provider_data(provider, user):
                          'app_id': bot.app_id, 'is_active': bot.is_active,
                          'companion_channel': channel.companion_id if user.role == 'Owner' else None,
                          'prefer_markdown': channel.prefer_markdown,
+                         'identity_probe_enabled': channel.identity_probe_enabled,
                          'group_matches': matches_data(channel) if user.role == 'Owner' else [],
                          'connection_ids': {'onebot11': ob11, 'onebot12': own_id or None},
                          'models': [conversation_data(model) for model in models]})
@@ -105,7 +106,7 @@ def save_provider(request, pk=None):
     seen_channels = set()
     for item in channels:
         fields(item, ['id', 'bot_id', 'name', 'interface_type', 'base_url', 'app_id', 'secret', 'clear_secret', 'event_secret', 'event_reporting_enabled', 'is_active', 'models',
-                      'companion_channel', 'prefer_markdown', 'group_matches', 'connection_ids'],
+                      'companion_channel', 'prefer_markdown', 'identity_probe_enabled', 'group_matches', 'connection_ids'],
                ['name', 'interface_type', 'app_id', 'is_active', 'models'])
         try:
             validate_interface(item['interface_type'])
@@ -145,6 +146,10 @@ def save_provider(request, pk=None):
         if type(prefer) is not bool or (is_onebot and prefer):
             raise ValidationError('Markdown preference is only supported for QQ official Channels')
         channel.prefer_markdown = prefer
+        probe = item.get('identity_probe_enabled', channel.identity_probe_enabled)
+        if type(probe) is not bool or (probe and (is_onebot or not channel.companion_id)):
+            raise ValidationError('Identity probing requires an official Channel with a OneBot companion')
+        channel.identity_probe_enabled = probe
         if protocol_changed:
             channel.onebot_self_id = ''
         if 'event_secret' in item:

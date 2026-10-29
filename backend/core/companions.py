@@ -172,7 +172,7 @@ def bridge_payload(master, slave_event, group, primary_event=None):
     sender = primary_row.sender_id if primary_row else shadow_user(master, row.sender_id)
     learn_real_id(master, 'message', mid, row.message_id)
     from .message_links import bridge_segments
-    segments = bridge_segments(master, row.segments)
+    segments = bridge_segments(master, row.segments, group)
     return {'op': 0, 'id': 'companion:' + hashlib.sha256((str(master.pk)+':'+slave_event.event_id).encode()).hexdigest(),
         't': 'COMPANION_MESSAGE_CREATE', 'd': {'group_openid': group, 'sender_id': sender, 'message_id': mid,
         'time': row.sent_at, 'segments': segments, 'source_bot': slave.pk,
@@ -288,6 +288,13 @@ def reconcile(observation):
 def handle_event(event):
     """Return whether this source event should publish on its own Bot immediately."""
     channel = event.bot.channel
+    if channel.identity_probe_enabled and not onebot_version(event.bot):
+        from .identity_probes import ensure_identity
+        row = message_for(event)
+        if row and row.conversation_type == 'group':
+            for segment in row.segments:
+                if segment['type'] == 'mention':
+                    ensure_identity(event.bot, row.target_id, original=segment['data']['user_id'], wait=False)
     own = observe(event, channel, 'primary') if channel.companion_id else None
     if own:
         match_names(channel)

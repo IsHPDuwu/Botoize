@@ -32,6 +32,7 @@ export interface UpstreamChannel {
   models: ConversationModel[];
   companion_channel?: number | null;
   prefer_markdown?: boolean;
+  identity_probe_enabled?: boolean;
   group_matches?: ChannelGroupMatch[];
   connection_ids?: { onebot11: number | null; onebot12: string | null };
 }

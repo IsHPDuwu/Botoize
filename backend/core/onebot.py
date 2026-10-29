@@ -307,7 +307,19 @@ def prepare_message(bot, key, scopes, message, direct, target, version, *, prepa
                         identifier(value)
                     user = resolve_id(bot, 'user', value, version)
                 except OneBotError:
-                    continue
+                    if version == 11:
+                        from .identity_probes import ensure_identity
+                        ensure_identity(bot, target, real=value)
+                        try:
+                            user = resolve_id(bot, 'user', value, version)
+                        except OneBotError:
+                            continue
+                    else:
+                        continue
+                from .identity_probes import ensure_identity
+                ensure_identity(bot, target, original=user)
+                from .onebot_ids import canonical_id
+                user = canonical_id(bot, 'user', user)
                 if user.startswith('companion_'):
                     continue
                 content.append(f'<qqbot-at-user id="{identifier(user)}" />')

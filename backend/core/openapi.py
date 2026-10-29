@@ -147,6 +147,7 @@ def schema():
                              'clear_secret': {**BOOLEAN, 'description': 'OneBot only: explicitly clear Access Token'},
                              'event_secret': {**PASSWORD, 'description': 'OneBot HTTP event secret: omit to retain, empty to disable'},
                              'event_reporting_enabled': {**BOOLEAN, 'readOnly': True}, 'is_active': BOOLEAN,
+                             'identity_probe_enabled': {**BOOLEAN, 'default': False, 'description': 'Official Channel with companion only: actively @/recall from either side to identify unknown users'},
                              'models': {'type': 'array', 'items': conversation}}, ['name', 'interface_type', 'app_id', 'is_active', 'models'])
     provider_input = {'name': STRING, 'channels': {'type': 'array', 'items': channel, 'minItems': 1, 'maxItems': 100}}
     add('/api/v1/providers/', 'get', 'listProviders')

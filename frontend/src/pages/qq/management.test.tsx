@@ -137,6 +137,8 @@ describe('conversation management UI', () => {
     await waitFor(() => expect(screen.queryByRole('dialog',{name:'编辑群聊匹配'})).not.toBeInTheDocument())
     expect(screen.getByText('已停用')).toBeInTheDocument()
     fireEvent.click(screen.getByLabelText('文本 / 图文优先 QQ Markdown'))
+    expect(screen.getByLabelText('通过 @ 并撤回识别未知用户')).not.toBeChecked()
+    fireEvent.click(screen.getByLabelText('通过 @ 并撤回识别未知用户'))
     fireEvent.click(screen.getByRole('button',{name:'添加匹配'}))
     const adding=screen.getByRole('dialog',{name:'添加群聊匹配'})
     fireEvent.change(within(adding).getByLabelText('主机群 ID'),{target:{value:'another-openid'}})
@@ -146,7 +148,7 @@ describe('conversation management UI', () => {
     fireEvent.click(screen.getByRole('button',{name:'保存'}))
     await waitFor(() => expect(management).toHaveBeenCalled())
     const body=vi.mocked(management).mock.calls[0][1] as {channels:Record<string,unknown>[]}
-    expect(body.channels[0]).toMatchObject({companion_channel:2,prefer_markdown:true,group_matches:[
+    expect(body.channels[0]).toMatchObject({companion_channel:2,prefer_markdown:true,identity_probe_enabled:true,group_matches:[
       expect.objectContaining({id:8,companion_group:'98766',enabled:false,origin:'manual'}),
       expect.objectContaining({primary_group:'another-openid',companion_group:'99887',enabled:true,origin:'manual'})]})
   })

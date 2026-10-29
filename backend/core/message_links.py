@@ -67,13 +67,16 @@ def learn_quotes(master, primary, companion, primary_event=None):
         attachment_bot__isnull=False).filter(reference='').update(reference=reference)
 
 
-def bridge_segments(master, segments):
+def bridge_segments(master, segments, group=None):
     from .companions import shadow_user
     import hashlib
     result = copy.deepcopy(segments)
     for segment in result:
         if segment['type'] == 'mention':
             segment['data']['user_id'] = shadow_user(master, str(segment['data']['user_id']))
+            if group is not None:
+                from .identity_probes import ensure_identity
+                ensure_identity(master, group, original=segment['data']['user_id'], wait=False)
         elif segment['type'] == 'reply':
             real = str(segment['data']['message_id'])
             original = original_for_real(master, 'message', real)
@@ -149,7 +152,7 @@ def quoted_history(bot, key, mid, *, lookup=False):
         reference = mid if not mid.startswith('companion_') else ''
         return OneBotMessage.objects.get_or_create(bot=bot, source_digest='', message_id=mid, defaults={
             'is_direct': False, 'target_id': anchor.target_id, 'sender_id': shadow_user(bot, row.sender_id),
-            'segments': bridge_segments(bot, row.segments), 'sent_at': row.sent_at, 'incoming': True,
+            'segments': bridge_segments(bot, row.segments, None if lookup else anchor.target_id), 'sent_at': row.sent_at, 'incoming': True,
             'conversation_type': 'group', 'reference': reference, 'context_event': anchor.source_event,
             'context_pairing': initial_pairing,
             'attachment_bot': slave, 'attachment_digest': digest,

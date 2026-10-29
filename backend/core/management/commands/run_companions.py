@@ -26,10 +26,14 @@ class Command(BaseCommand):
                 close_old_connections()
 
         refresh_at = 0
-        pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix='companion-discovery')
+        pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix='companion-discovery')
         pending = None
+        probes = None
         try:
             while True:
+                if probes is None or probes.done():
+                    from core.identity_probes import process_pending
+                    probes = pool.submit(process_pending)
                 try:
                     flush_due(limit=1000)
                 except OperationalError:
@@ -42,6 +46,8 @@ class Command(BaseCommand):
                 if options['once']:
                     if pending:
                         pending.result()
+                    if probes:
+                        probes.result()
                     return
                 time.sleep(0.5)
         except KeyboardInterrupt:

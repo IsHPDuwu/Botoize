@@ -184,6 +184,8 @@ def parsed_message(payload):
 
 
 def remember_message(bot, payload):
+    if payload.get('botoize.identity_probe'):
+        return None
     if payload.get('t') == 'COMPANION_MESSAGE_CREATE':
         from .companions import remember_bridge
         return remember_bridge(bot, payload)
@@ -218,6 +220,8 @@ def visible_segments(row, key):
         data = segment['data']
         if segment['type'] == 'reply':
             data['message_id'] = canonical_id(row.bot, 'message', data['message_id'])
+        elif segment['type'] == 'mention':
+            data['user_id'] = canonical_id(row.bot, 'user', data['user_id'])
         if 'qq.url' not in data and 'botoize.upstream_file_id' not in data:
             continue
         if key is None:
@@ -294,6 +298,8 @@ def notice_event(bot, payload, self_id, version, received_at=None):
 
 
 def message_event(bot, payload, self_id, version=11, key=None, received_at=None):
+    if payload.get('botoize.identity_probe'):
+        return None
     from .companions import bridge_visible
     if not bridge_visible(bot, payload):
         return None

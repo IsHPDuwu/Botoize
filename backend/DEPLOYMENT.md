@@ -23,6 +23,8 @@ Webhook 无常驻连接，其按钮仅排队执行上游 HTTP 身份检查，不
 
 主从协作另需常驻 `uv run --locked python manage.py run_companions`，维护主机逐条接收回退与群/真实 ID 匹配。详见 [主从协作](COMPANIONS.md)。
 
+可选的 `identity_probe_enabled` 由 Owner 在官机 Channel 设置中启用，默认关闭。先迁移 `0043–0044` 并加载新 API、connections / companions worker；两种 worker 都可处理持久身份探测队列。开启后有 QQ 号由从机发 @，有 OpenID 由主机发 @，取得消息 ID 后立即尝试撤回。超时不重发，撤回最多三次；探测通知可能短暂可见，失败可能留消息。识别事件不会进入下游业务流，完整行为见 [主动识别未知用户](COMPANIONS.md#主动识别未知用户可选)。
+
 `run_connections` 每分钟也执行一次本地历史 ID 修复：刷新双方旧消息指纹，并按数据库游标分批重试已存在的未配对记录；不访问上游或重放历史事件。升级先执行 migrate（包含 `0042`），随后由部署工具重建/重启 connections 以加载代码。该兜底不替代 `run_companions` 的上游群信息刷新和接收回退维护。
 
 ### 官方 Gateway worker
